@@ -41,8 +41,17 @@ public final class SlackAXReader: @unchecked Sendable {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier == bundleID
     }
 
-    /// Reads a snapshot of the focused Slack window. Pass `myName` to override the detected display name.
-    public func read(myNameOverride: String? = nil, maxMessages: Int = 30) throws -> ConversationSnapshot {
+    static func sameName(_ a: String, _ b: String) -> Bool {
+        a.trimmingCharacters(in: .whitespaces)
+            .compare(b.trimmingCharacters(in: .whitespaces), options: [.caseInsensitive, .diacriticInsensitive])
+            == .orderedSame
+    }
+
+    /// Reads a snapshot of the focused Slack window. `myNameOverride` beats detection; `myNameFallback`
+    /// (the last name detected in an earlier run) is used when the sidebar's "you" row isn't rendered.
+    public func read(
+        myNameOverride: String? = nil, myNameFallback: String? = nil, maxMessages: Int = 30
+    ) throws -> ConversationSnapshot {
         guard AXIsProcessTrusted() else { throw ReadError.notTrusted }
         guard let running = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else {
             throw ReadError.notRunning
@@ -65,6 +74,24 @@ public final class SlackAXReader: @unchecked Sendable {
             ?? ((AX.attribute(app, kAXWindowsAttribute) as? [AXUIElement])?.first)
         guard let window else { throw ReadError.noWindow }
 
+        // The sidebar is large; skip it while looking for the message pane.
+        func findPane() -> AXUIElement? {
+            AX.first(in: window, withClass: "p-message_pane") { _, classes in
+                classes.contains("p-channel_sidebar") || classes.contains("p-tab_rail")
+            }
+        }
+        var pane = findPane()
+        if pane == nil {
+            // Chromium drops its web accessibility tree when nobody has queried it for a while. Opt in
+            // again and give it a moment to rebuild (about 1-2 s) before concluding nothing is open.
+            AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+            for _ in 0..<8 where pane == nil {
+                Thread.sleep(forTimeInterval: 0.25)
+                pane = findPane()
+            }
+        }
+        guard let pane, let list = Self.messageList(in: pane) else { throw ReadError.noMessageList }
+
         if detectedMyName == nil,
            let row = AX.first(in: window, withClass: "p-channel_sidebar__channel--im-you", maxDepth: 40)
         {
@@ -73,14 +100,6 @@ public final class SlackAXReader: @unchecked Sendable {
                 .flatMap { AX.string($0, kAXValueAttribute) }?
                 .trimmingCharacters(in: .whitespaces)
         }
-
-        // The sidebar is large; skip it while looking for the message pane.
-        guard let pane = AX.first(in: window, withClass: "p-message_pane", skip: { _, classes in
-            classes.contains("p-channel_sidebar") || classes.contains("p-tab_rail")
-        }) else {
-            throw ReadError.noMessageList
-        }
-        guard let list = Self.messageList(in: pane) else { throw ReadError.noMessageList }
 
         let header = AX.first(in: window, withClass: "p-view_header__big_button", maxDepth: 40) { _, classes in
             classes.contains("p-channel_sidebar") || classes.contains("p-message_pane")
@@ -94,21 +113,32 @@ public final class SlackAXReader: @unchecked Sendable {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? "Slack"
 
-        let myName = myNameOverride.flatMap { $0.isEmpty ? nil : $0 } ?? detectedMyName
         var messages: [ChatMessage] = []
         var lastAuthor: String?
         for item in AX.children(list) {
             guard let id = AX.domID(item), let ts = Self.messageTimestamp(fromDOMID: id) else { continue }
             guard var parsed = Self.parseMessage(item) else { continue }
             if parsed.author.isEmpty {
-                parsed.author = lastAuthor ?? "Unknown"
+                // A follow-up in a group: same author as the message above. Without one in view, the
+                // author is unknown, and the message is dropped rather than invent a speaker.
+                guard let lastAuthor else { continue }
+                parsed.author = lastAuthor
             }
             lastAuthor = parsed.author
             parsed.id = ts
-            if let myName {
-                parsed.isMe = parsed.author.compare(myName, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-            }
             if !parsed.text.isEmpty { messages.append(parsed) }
+        }
+
+        // ME: the override, else the sidebar's "you" row, else the last name seen. In a DM, whoever
+        // isn't the person in the header is ME, which also works when the sidebar row isn't rendered.
+        var myName = myNameOverride.flatMap { $0.isEmpty ? nil : $0 } ?? detectedMyName ?? myNameFallback
+        if myName == nil, isDM, let other = headerTitle?.trimmingCharacters(in: .whitespaces) {
+            myName = messages.first { !Self.sameName($0.author, other) }?.author
+        }
+        if let myName {
+            for index in messages.indices {
+                messages[index].isMe = Self.sameName(messages[index].author, myName)
+            }
         }
 
         let anchor = (AX.frame(pane) ?? AX.frame(window)).map(AX.appKitRect(fromAX:))
@@ -147,7 +177,7 @@ public final class SlackAXReader: @unchecked Sendable {
     static let skippedClasses: Set<String> = [
         "c-message__sender_button", "c-timestamp", "c-message_kit__reaction_bar", "c-reaction_bar",
         "c-message__reply_bar", "c-message_actions__container", "p-message_pane_message__compact_timestamp",
-        "c-message_kit__gutter", "c-avatar", "c-message__broadcast_preamble",
+        "c-message_kit__gutter", "c-avatar", "c-message__broadcast_preamble", "c-message__edited_label",
     ]
     static let skippedRoles: Set<String> = [
         kAXButtonRole as String, kAXPopUpButtonRole as String, kAXCheckBoxRole as String,
@@ -170,30 +200,46 @@ public final class SlackAXReader: @unchecked Sendable {
             guard !block.isEmpty else { continue }
             blocks.append(AX.classes(child).contains("c-mrkdwn__quote") ? "> " + block : block)
         }
-        return ChatMessage(id: "", author: author.trimmingCharacters(in: .whitespaces), text: blocks.joined(separator: "\n"), time: time)
+        let text = stripEditedMarker(blocks.joined(separator: "\n"))
+        return ChatMessage(id: "", author: author.trimmingCharacters(in: .whitespaces), text: text, time: time)
     }
 
-    static func collectText(_ element: AXUIElement, into pieces: inout [String], depth: Int) {
+    /// Slack appends a localized "(edited)" label as plain text, with no class to filter on.
+    static let editedLabels: Set<String> = [
+        "edited", "editado", "изменено", "отредактировано", "bearbeitet", "modifié", "modificato", "bewerkt",
+        "edytowano", "redigerad", "düzenlendi", "編集済み", "已编辑", "편집됨",
+    ]
+
+    static func stripEditedMarker(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasSuffix(")"), let open = trimmed.lastIndex(of: "(") else { return trimmed }
+        let label = trimmed[trimmed.index(after: open)..<trimmed.index(before: trimmed.endIndex)]
+        guard editedLabels.contains(label.lowercased()) else { return trimmed }
+        return String(trimmed[..<open]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func collectText(_ element: AXUIElement, into pieces: inout [String], depth: Int, inEmoji: Bool = false) {
         guard depth < 12 else { return }
         let classes = AX.classes(element)
         if classes.contains(where: skippedClasses.contains) { return }
+        if classes.contains(where: { $0.hasSuffix("edited_label") }) { return } // "(edited)" in any locale
         let role = AX.role(element)
         if skippedRoles.contains(role) { return }
         if role == kAXStaticTextRole as String {
             if let value = AX.string(element, kAXValueAttribute) { pieces.append(value) }
             return
         }
+        let emoji = inEmoji || classes.contains { $0.hasPrefix("c-emoji") }
         if role == kAXImageRole as String {
-            // Inline emoji carry their name in the description; other images are avatars or badges.
-            if classes.contains(where: { $0.hasPrefix("c-emoji") }) || depth > 0,
-               let name = AX.string(element, kAXDescriptionAttribute), !name.isEmpty
-            {
+            // Inline emoji (`.c-emoji` on the image or its wrapper) carry their name in the description.
+            // Other images are file previews, avatars or badges; a file's name is already a text node.
+            if emoji, let name = AX.string(element, kAXDescriptionAttribute), !name.isEmpty {
                 pieces.append(":\(name.lowercased().replacingOccurrences(of: " ", with: "_")):")
             }
             return
         }
         for child in AX.children(element) {
-            collectText(child, into: &pieces, depth: depth + 1)
+            collectText(child, into: &pieces, depth: depth + 1, inEmoji: emoji)
         }
     }
 }

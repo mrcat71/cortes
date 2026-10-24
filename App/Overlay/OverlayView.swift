@@ -232,7 +232,6 @@ private struct VoiceCard: View {
     let recommended: Bool
     let copied: Bool
     let copy: () -> Void
-    @State private var expanded = false
 
     private var color: Color { Color(hex: voice?.ui.color ?? "#999999") }
 
@@ -266,13 +265,8 @@ private struct VoiceCard: View {
                     .font(.system(size: 14, design: .serif))
                     .italic()
                     .fixedSize(horizontal: false, vertical: true)
-                if expanded || recommended {
+                if !ranked.take.reply.isEmpty {
                     replyBox
-                } else if !ranked.take.reply.isEmpty {
-                    Button("Show reply") { withAnimation(.snappy) { expanded = true } }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(color)
                 }
                 if !ranked.eligible, !ranked.riskReasons.isEmpty {
                     Text("⚠ " + ranked.riskReasons.joined(separator: "; "))

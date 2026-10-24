@@ -147,6 +147,7 @@ final class AppModel {
             Task { @MainActor in self?.handle(event) }
         }
         source.setMyNameOverride(myNameOverride.isEmpty ? nil : myNameOverride)
+        source.setMyNameFallback(defaults.string(forKey: "detectedSlackName"))
         capture = source
         observeSystem()
         if !axTrusted { pollTrust() }
@@ -213,6 +214,10 @@ final class AppModel {
         case .snapshot(let snapshot):
             if !axTrusted { log.notice("Accessibility trusted; reading Slack") }
             axTrusted = true
+            if myNameOverride.isEmpty, let name = snapshot.myName, name != defaults.string(forKey: "detectedSlackName") {
+                defaults.set(name, forKey: "detectedSlackName")
+                capture?.setMyNameFallback(name)
+            }
             captureStatus = "Reading “\(snapshot.key.title)”"
             ingest(snapshot)
         }

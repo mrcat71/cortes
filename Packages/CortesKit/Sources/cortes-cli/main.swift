@@ -41,6 +41,15 @@ case "slack":
             print("[\(message.id)] \(message.time ?? "--:--") \(message.isMe ? "ME " : "")\(author): \(text.replacingOccurrences(of: "\n", with: " ⏎ "))")
         }
         print("revision: \(snapshot.revision)  attention: \(TriggerPolicy.attentionScore(snapshot))")
+        if args.contains("--prompt") {
+            // What the model receives: speaker labels in clear, message text masked unless --raw.
+            let (chat, _) = SuggestionEngine.prepare(snapshot, pseudonymize: true)
+            print("--- prompt (\(chat.kind.rawValue), title \(raw ? chat.title : mask(chat.title)))")
+            for message in chat.messages {
+                print("\(message.n) from=\(message.from): \(raw ? message.text : mask(message.text))".replacingOccurrences(of: "\n", with: " ⏎ "))
+            }
+            print(PromptBuilder.user(chat: chat, mode: "manual").components(separatedBy: "\n").last ?? "")
+        }
     } catch {
         fail("Slack read failed: \(error.localizedDescription)")
     }

@@ -8,6 +8,7 @@ public final class SlackAXSource: @unchecked Sendable {
     private let onEvent: @Sendable (CaptureEvent) -> Void
     private var timer: DispatchSourceTimer?
     private var myNameOverride: String?
+    private var myNameFallback: String?
     private var lastInactiveReason: String?
     private let log = Logger(subsystem: "io.github.mrcat71.cortes", category: "capture")
 
@@ -17,6 +18,11 @@ public final class SlackAXSource: @unchecked Sendable {
 
     public func setMyNameOverride(_ name: String?) {
         queue.async { self.myNameOverride = name }
+    }
+
+    /// The name detected in an earlier run, used when Slack's sidebar "you" row isn't rendered.
+    public func setMyNameFallback(_ name: String?) {
+        queue.async { self.myNameFallback = name }
     }
 
     public func start(interval: TimeInterval = 1.0) {
@@ -60,7 +66,7 @@ public final class SlackAXSource: @unchecked Sendable {
 
     private func read() -> CaptureEvent {
         do {
-            return .snapshot(try reader.read(myNameOverride: myNameOverride))
+            return .snapshot(try reader.read(myNameOverride: myNameOverride, myNameFallback: myNameFallback))
         } catch SlackAXReader.ReadError.notTrusted {
             return .notTrusted
         } catch {
