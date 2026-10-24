@@ -43,6 +43,11 @@ make demo
 After the initial build and model download, the demo needs no account or API key. Generation is not
 instant: the repository's [local-model smoke-test notes](docs/poc-results.md)
 record roughly 25-27 seconds for four voices on an M4 MacBook Pro, not a latency guarantee.
+Local (Ollama) answers now appear one completed voice at a time while the remaining voices generate.
+These are previews: Copy and the recommendation unlock only after the full answer is validated.
+Streaming reduces the wait before you can start reading, not the model's total generation time.
+Cloud and Replay still display the complete answer at once. Invalid output clears the previews before
+one repair attempt; a failed or interrupted stream never becomes a final recommendation.
 
 For an offline UI fallback, select **Settings → Model → Replay**. It returns a fixed, canned answer,
 not live model inference and not an evaluation result.
@@ -100,8 +105,9 @@ the bundled definition. Restart the app to load changes.
   [Apache-2.0 in its model card](https://ai.google.dev/gemma/docs/core/model_card_4).
   Model weights are downloaded separately, not bundled in this repository.
 - **Inference code:** [OllamaBackend.swift](Packages/CortesKit/Sources/CortesKit/OllamaBackend.swift)
-  calls `/api/chat`, with thinking disabled and an 8192-token context. It requests schema-constrained JSON;
-  if the server reports structured output unavailable with HTTP 501, it retries without the schema.
+  calls `/api/chat`, with thinking disabled and an 8192-token context. It requests schema-constrained JSON.
+  The app consumes streamed chunks and reveals only complete voice objects, with aliases restored locally.
+  If the server reports structured output unavailable with HTTP 501, it retries without the schema.
   Both paths still run output validation and at most one repair attempt in
   [SuggestionEngine.swift](Packages/CortesKit/Sources/CortesKit/SuggestionEngine.swift).
 - **Optional cloud alternative:** [Backend.swift](Packages/CortesKit/Sources/CortesKit/Backend.swift)

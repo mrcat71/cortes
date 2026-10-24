@@ -13,6 +13,8 @@ struct OverlayView: View {
                 EmptyView()
             case .thinking:
                 ThinkingView(voices: model.voices.filter(\.enabled))
+            case .streaming(let batch):
+                StreamingView(model: model, batch: batch)
             case .consent(let snapshot):
                 ConsentView(
                     engine: model.engine, title: snapshot.key.title,
@@ -179,6 +181,38 @@ private struct FailureView: View {
     }
 }
 
+private struct StreamingView: View {
+    let model: AppModel
+    let batch: VoiceBatch
+
+    var body: some View {
+        let voices = model.voices.filter(\.enabled)
+        let verdict = DecisionEngine.decide(batch: batch, voices: voices)
+        let completed = Set(batch.takes.map(\.id))
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: batch.read.gist)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            TensionMeter(tension: batch.read.tension, need: batch.read.need)
+            ForEach(verdict.ranked) { ranked in
+                VoiceCard(
+                    ranked: ranked, voice: model.voice(ranked.id), recommended: false,
+                    copied: false, canCopy: false, copy: {})
+            }
+            ThinkingView(voices: voices.filter { !completed.contains($0.id) })
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("\(completed.count)/\(voices.count) voices ready. Copy and recommendation unlock after validation.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
 private struct ResultView: View {
     @Bindable var model: AppModel
     let result: SuggestionResult
@@ -255,6 +289,7 @@ private struct VoiceCard: View {
     let voice: VoiceDefinition?
     let recommended: Bool
     let copied: Bool
+    var canCopy = true
     let copy: () -> Void
 
     private var color: Color { Color(hex: voice?.ui.color ?? "#999999") }
@@ -316,6 +351,8 @@ private struct VoiceCard: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(color)
+            .disabled(!canCopy)
+            .help(canCopy ? "Copy reply" : "Waiting for the complete answer to be validated")
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)

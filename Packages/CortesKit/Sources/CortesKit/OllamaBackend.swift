@@ -104,17 +104,25 @@ public struct OllamaBackend: LLMBackend {
                             }
                             throw describe(status: status, message: message)
                         }
+                        var finished = false
                         for try await line in bytes.lines {
-                            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
-                            else { continue }
+                            try Task.checkCancellation()
+                            if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+                            guard let object = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+                            else { throw LLMError.badResponse("invalid Ollama stream chunk") }
                             if let error = object["error"] as? String { throw LLMError.badResponse(error) }
                             if let message = object["message"] as? [String: Any],
                                let content = message["content"] as? String, !content.isEmpty
                             {
                                 continuation.yield(content)
                             }
-                            if object["done"] as? Bool == true { break }
+                            if object["done"] as? Bool == true {
+                                finished = true
+                                break
+                            }
                         }
+                        try Task.checkCancellation()
+                        guard finished else { throw LLMError.badResponse("Ollama stream ended before completion") }
                         break
                     }
                     continuation.finish()

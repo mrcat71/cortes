@@ -90,6 +90,66 @@ import Testing
         #expect(fixture.requests.count == 4)
     }
 
+    @Test(arguments: [
+        "not JSON\n",
+        #"{"message":{"content":"unfinished"},"done":false}"# + "\n",
+        #"{"error":"generation failed"}"# + "\n",
+    ])
+    func rejectsMalformedFailedOrInterruptedStreams(body: String) async throws {
+        let fixture = OllamaFixture(responses: [(200, body)])
+        defer { fixture.close() }
+        await #expect(throws: (any Error).self) {
+            try await complete(fixture.backend, streaming: true)
+        }
+        #expect(fixture.requests.count == 1)
+    }
+
+    @Test func streamingEnginePreservesSchemaFallbackAndRepair() async throws {
+        let fixture = OllamaFixture(responses: [
+            (501, unavailable), (200, response(content: "not JSON") + "\n"),
+            (501, unavailable), (200, response(content: ReplayBackend.canned) + "\n"),
+        ])
+        defer { fixture.close() }
+        let scenario = try #require(Scenario.loadBundled().first)
+        let result = try await SuggestionEngine(backend: fixture.backend, voices: VoiceRegistry.load()).run(
+            SuggestionRequest(snapshot: scenario.snapshot(visibleCount: 5), mode: "manual", pseudonymize: true),
+            onProgress: { _ in })
+        #expect(result.repaired)
+        #expect(result.model == "test-model")
+        #expect(result.verdict.ranked.count == 4)
+        #expect(fixture.requests.count == 4)
+        #expect(fixture.requests.allSatisfy { $0["stream"] as? Bool == true })
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellingGenerationClosesTheOllamaConnection() async throws {
+        let boundary = try #require(ReplayBackend.canned.range(of: #""empathy""#))
+        let prefix = String(ReplayBackend.canned[..<boundary.lowerBound])
+        let body = "{\"message\":{\"content\":\(OrderedJSON.quote(prefix))},\"done\":false}\n"
+        let fixture = OllamaFixture(responses: [(200, body)], holdsOpen: true)
+        defer { fixture.close() }
+        let events = AsyncStream<VoiceBatch?>.makeStream()
+        defer { events.continuation.finish() }
+        let scenario = try #require(Scenario.loadBundled().first)
+        let engine = SuggestionEngine(backend: fixture.backend, voices: VoiceRegistry.load())
+        let task = Task {
+            try await engine.run(SuggestionRequest(
+                snapshot: scenario.snapshot(visibleCount: 5), mode: "manual", pseudonymize: true)
+            ) { events.continuation.yield($0) }
+        }
+        defer { task.cancel() }
+        var previews = events.stream.makeAsyncIterator()
+        let preview = try #require(await previews.next())
+        #expect(preview?.takes.map(\.id) == ["logic"])
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("Cancelled generation returned a final result")
+        } catch is CancellationError {}
+        var stops = fixture.stops.makeAsyncIterator()
+        #expect(await stops.next() != nil)
+        #expect(fixture.requests.count == 1)
+    }
+
     private func complete(_ backend: OllamaBackend, streaming: Bool) async throws -> String {
         try await complete(backend, streaming: streaming, schema: schema)
     }
@@ -121,6 +181,7 @@ import Testing
 private struct OllamaFixture {
     let host = UUID().uuidString.lowercased() + ".invalid"
     let session: URLSession
+    let stops: AsyncStream<Void>
     var backend: OllamaBackend {
         OllamaBackend(config: OllamaConfig(baseURL: "http://\(host)", model: "test-model"), session: session)
     }
@@ -130,11 +191,16 @@ private struct OllamaFixture {
         }
     }
 
-    init(responses: [(Int, String)]) {
+    init(responses: [(Int, String)], holdsOpen: Bool = false) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OllamaStub.self]
         session = URLSession(configuration: configuration)
-        OllamaStub.states.withLock { $0[host] = OllamaStub.State(responses: responses) }
+        let events = AsyncStream<Void>.makeStream()
+        stops = events.stream
+        OllamaStub.states.withLock {
+            $0[host] = OllamaStub.State(
+                responses: responses, holdsOpen: holdsOpen, onStop: { events.continuation.yield(()) })
+        }
     }
 
     func close() {
@@ -147,6 +213,8 @@ private final class OllamaStub: URLProtocol, @unchecked Sendable {
     struct State: Sendable {
         var responses: [(Int, String)]
         var requests: [Data] = []
+        var holdsOpen = false
+        var onStop: @Sendable () -> Void = {}
     }
     static let states = Mutex<[String: State]>([:])
 
@@ -180,8 +248,12 @@ private final class OllamaStub: URLProtocol, @unchecked Sendable {
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(text.utf8))
-        client?.urlProtocolDidFinishLoading(self)
+        let holdsOpen = Self.states.withLock { $0[request.url?.host ?? ""]?.holdsOpen ?? false }
+        if !holdsOpen { client?.urlProtocolDidFinishLoading(self) }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        let onStop = Self.states.withLock { $0[request.url?.host ?? ""]?.onStop }
+        onStop?()
+    }
 }
