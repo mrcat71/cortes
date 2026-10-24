@@ -1,0 +1,15 @@
+{
+  "id": "scope-creep",
+  "title": "#checkout-scope",
+  "kind": "channel",
+  "me": "Alex",
+  "preloaded": 2,
+  "lines": [
+    { "from": "Maria", "at": "10:00", "text": "The simplified checkout is ready for Thursday's customer demo. Just the new payment flow, as agreed." },
+    { "from": "Alex", "at": "10:02", "text": "Payment flow is implemented. Priya and I have tomorrow reserved for regression testing." },
+    { "from": "Sam", "at": "10:08", "text": "Great news: the customer also wants discount codes and CSV export. I mentioned we could probably include them 🙂" },
+    { "from": "Priya", "at": "10:09", "text": "Discounts change the totals and refund cases. Those aren't covered by the current test plan." },
+    { "from": "Maria", "at": "10:11", "text": "The customer needs discounts for their pilot. CSV export could wait, but I haven't promised a date for either." },
+    { "from": "Sam", "at": "10:12", "text": "@Alex can you confirm discounts for Thursday? I'd rather not go back to them with another question." }
+  ]
+}

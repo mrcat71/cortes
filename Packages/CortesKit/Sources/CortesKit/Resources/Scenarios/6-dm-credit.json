@@ -1,0 +1,15 @@
+{
+  "id": "dm-credit",
+  "title": "Jamie",
+  "kind": "dm",
+  "me": "Alex",
+  "preloaded": 2,
+  "lines": [
+    { "from": "Jamie", "at": "11:10", "text": "Hey Alex, thanks for helping get the prototype ready. The leadership demo is this afternoon." },
+    { "from": "Alex", "at": "11:11", "text": "Looking forward to it. I just checked the slides." },
+    { "from": "Alex", "at": "11:12", "text": "The project slide says you designed and built it. Could we put both our names there? I built the backend and the demo flow." },
+    { "from": "Jamie", "at": "11:14", "text": "I came up with the idea and I'm presenting it. Listing everyone will make the slide too busy." },
+    { "from": "Jamie", "at": "11:15", "text": "I'll mention your help if someone asks about implementation." },
+    { "from": "Jamie", "at": "11:16", "text": "Can you run the live demo while I present? And let's not get into who built what in front of leadership, okay?" }
+  ]
+}

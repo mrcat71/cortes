@@ -58,6 +58,25 @@ one repair attempt; a failed or interrupted stream never becomes a final recomme
 For an offline UI fallback, select **Settings → Model → Replay**. It returns a fixed, canned answer,
 not live model inference and not an evaluation result.
 
+### Conversations for the live demo
+
+Select a conversation in Demo Chat, then use **Next message** to reveal the dilemma. Each starts with
+two messages; **Restart** returns to that opening. All participants and conversations are synthetic.
+
+| Scenario in the picker | CLI ID | What to explore |
+| --- | --- | --- |
+| #friday-release | `friday-release` | A customer needs a checkout fix, but a retry test double-charges an order and rollback is not straightforward. Compare Business perspectives on scope, release safety and test evidence. |
+| #checkout-scope | `scope-creep` | Sales has hinted at extra features before a fixed demo date. Negotiate the useful minimum without inventing an estimate or skipping regression tests. |
+| Jamie | `dm-credit` | A teammate claims sole credit, then asks you to run the presentation. Compare Inner voices on recognition, boundaries and preserving the relationship. |
+
+For a 3-5 minute hackathon walkthrough, use **Manual** activation and **Local (Ollama)** inference.
+Select **Business** perspectives and **#friday-release**, reveal all seven messages, and ask for advice.
+Compare the four replies and their trade-offs while completed voices appear. Switch to **Inner voices**
+and ask again on the same conversation to show how the lens changes, then Copy a reply for review.
+Live outputs vary; these are discussion cases, not scored model evaluations. Replay does not adapt to
+these conversations: its fixed answer is about the original launch-war-room scenario, so use that
+scenario if demonstrating the offline fallback.
+
 ### Use it with Slack
 
 1. Optionally run `make signing-identity` once per Mac. This creates a self-signed
@@ -158,6 +177,9 @@ construction, invalid output, and Ollama's schema fallback and repair behavior:
 make test
 ```
 
+The `DemoTests` suite checks that all six conversations load, have distinct IDs and conversation keys,
+and retain unrevealed messages. It also checks speaker attribution and prompt focus at each reveal.
+
 The [proof-of-concept notes](docs/poc-results.md) record Slack capture, local-model latency and output
 reliability checks. They do **not** establish better communication outcomes than the same model alone.
 Replay results and mocked API tests must not be presented as live-model quality measurements.
@@ -209,8 +231,8 @@ plain-model benchmark has been recorded in this repository yet.
 
 ## Live demo and hackathon submission
 
-For a 3-5 minute demo: open Demo Chat with **Local (Ollama)**, reveal the launch-war-room messages,
-ask the voices, and compare a recommended reply with a risk-flagged one. Show the voice JSON,
+Follow the [live-demo conversation walkthrough](#conversations-for-the-live-demo) to compare Business
+and Inner voices on the same release decision. Show the voice JSON,
 `DecisionEngine.swift`, and the `/api/chat` call in `OllamaBackend.swift`. For a judge's new input, use an
 authorized test conversation in Slack. Disclose if you switch to the canned **Replay** fallback.
 
