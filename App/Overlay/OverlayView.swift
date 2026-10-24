@@ -43,7 +43,7 @@ struct OverlayView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Text("INNER VOICES")
+            Text(model.perspectiveMode == .business ? "BUSINESS" : "INNER VOICES")
                 .font(.system(size: 10, weight: .heavy))
                 .tracking(2)
                 .foregroundStyle(.secondary)
