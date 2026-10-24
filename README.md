@@ -17,18 +17,23 @@ There's no audio yet.
 ## Build and run
 
 ```sh
-xcodebuild -project Cortes.xcodeproj -scheme Cortes -configuration Debug -derivedDataPath build/DerivedData build
-open build/DerivedData/Build/Products/Debug/Cortes.app
+make signing-identity   # once per Mac: a self-signed "Cortes Local Signing" certificate in your login keychain
+make run                # build, sign, (re)launch
+make demo               # same, with the Demo Chat window open
+make test               # unit tests
 ```
 
-Or open `Cortes.xcodeproj` in Xcode and run the `Cortes` scheme. Add `--args --demo` to the `open`
-command to start with the Demo Chat window open.
+The app lands in `build/DerivedData/Build/Products/Debug/Cortes.app`. Without the local identity, builds
+are ad-hoc signed and macOS ties the Accessibility grant to that exact build, so every rebuild silently
+loses it. With the identity, the grant survives rebuilds. Remove the identity with
+`security delete-identity -c "Cortes Local Signing"`. Building from Xcode (⌘R) stays ad-hoc signed.
 
 ## First run
 
 1. **Accessibility.** Menu bar icon → *Grant Accessibility…*, then enable Cortes in System Settings →
-   Privacy & Security → Accessibility. Builds are ad-hoc signed, so every rebuild needs this again:
-   remove the old Cortes entry with − and add the new build.
+   Privacy & Security → Accessibility. If the icon still shows ⚠ although Cortes is enabled there, the
+   entry belongs to an older build: run `tccutil reset Accessibility io.github.mrcat71.cortes` and grant
+   again.
 2. **z.ai key.** *Settings… → Model*: pick the endpoint, paste the key, *Save to Keychain*, then *Test
    connection*. The key is stored only in Keychain (`ZAI_API_KEY` in the environment overrides it).
    A GLM Coding Plan key works only on the Coding Plan endpoint, and z.ai's terms limit that plan to

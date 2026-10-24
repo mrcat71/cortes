@@ -16,7 +16,9 @@ struct OverlayView: View {
             case .consent(let snapshot):
                 ConsentView(title: snapshot.key.title, allow: { model.allowAndAsk(snapshot) }, cancel: model.dismissOverlay)
             case .failure(let message):
-                FailureView(message: message, retry: model.retry)
+                FailureView(
+                    message: message, showGrant: !model.axTrusted, retry: model.retry,
+                    grantAccessibility: model.requestAccessibility)
             case .result(let result):
                 ResultView(model: model, result: result)
             }
@@ -130,7 +132,9 @@ private struct ConsentView: View {
 
 private struct FailureView: View {
     let message: String
+    let showGrant: Bool
     let retry: () -> Void
+    let grantAccessibility: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -141,6 +145,9 @@ private struct FailureView: View {
             }
             .font(.callout)
             HStack {
+                if showGrant {
+                    Button("Grant Accessibility…", action: grantAccessibility).buttonStyle(.borderedProminent)
+                }
                 Button("Retry", action: retry)
                 SettingsLink { Text("Settings…") }
             }

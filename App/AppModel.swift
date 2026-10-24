@@ -201,6 +201,7 @@ final class AppModel {
         guard mode != .paused else { return }
         switch event {
         case .notTrusted:
+            if axTrusted { log.notice("Accessibility trust lost") }
             axTrusted = false
             captureStatus = "Accessibility permission needed"
         case .inactive(let reason):
@@ -210,6 +211,7 @@ final class AppModel {
             captureStatus = message
             if current?.key.app == "slack" { leaveConversation() }
         case .snapshot(let snapshot):
+            if !axTrusted { log.notice("Accessibility trusted; reading Slack") }
             axTrusted = true
             captureStatus = "Reading “\(snapshot.key.title)”"
             ingest(snapshot)
@@ -489,6 +491,16 @@ final class AppModel {
             forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.wipe() }
+        })
+        // Demo suggestions belong to the Demo Chat window; don't leave them floating over other apps.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.current?.key.app == "demo" else { return }
+                self.cancelWork()
+                self.hideOverlay()
+            }
         })
     }
 
