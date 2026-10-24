@@ -64,6 +64,7 @@ enum Engine: String, CaseIterable, Identifiable {
 enum OverlayPhase {
     case hidden
     case thinking(ConversationKey)
+    case streaming(VoiceBatch)
     case consent(ConversationSnapshot)
     case result(SuggestionResult)
     case failure(String)
@@ -200,7 +201,10 @@ final class AppModel {
     var menuBarSymbol: String {
         if mode == .paused { return "moon.zzz" }
         if !axTrusted { return "exclamationmark.triangle" }
-        if case .thinking = phase { return "ellipsis.bubble" }
+        switch phase {
+        case .thinking, .streaming: return "ellipsis.bubble"
+        default: break
+        }
         return mode == .auto ? "brain" : "brain.head.profile"
     }
 
@@ -382,7 +386,10 @@ final class AppModel {
         let request = SuggestionRequest(snapshot: snapshot, mode: manual ? "manual" : "auto", pseudonymize: pseudonymize)
         inflight = Task { [weak self] in
             do {
-                let result = try await engine.run(request)
+                let result = try await engine.run(request) { [weak self] batch in
+                    guard !Task.isCancelled else { return }
+                    await self?.showProgress(batch, snapshot: snapshot)
+                }
                 guard !Task.isCancelled, let self else { return }
                 self.finish(result, auto: !manual)
             } catch {
@@ -391,6 +398,12 @@ final class AppModel {
                 self.phase = .failure(error.localizedDescription)
             }
         }
+    }
+
+    private func showProgress(_ batch: VoiceBatch?, snapshot: ConversationSnapshot) {
+        guard !Task.isCancelled, current?.key == snapshot.key else { return }
+        stale = current?.revision != snapshot.revision
+        phase = batch.map(OverlayPhase.streaming) ?? .thinking(snapshot.key)
     }
 
     private func finish(_ result: SuggestionResult, auto: Bool) {

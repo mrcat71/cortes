@@ -46,14 +46,24 @@ public enum LLMError: LocalizedError, Sendable {
 
 public protocol LLMBackend: Sendable {
     var origin: LLMOrigin { get }
+    var modelName: String { get }
     /// `schema`: a JSON schema (as raw JSON `Data`) the backend may enforce through
     /// grammar-constrained decoding. Backends that can't enforce it ignore it and rely on the validator.
     func complete(
         system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
     ) async throws -> LLMResult
+    func stream(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
+    ) -> AsyncThrowingStream<String, Error>?
 }
 
 extension LLMBackend {
+    public var modelName: String { origin.rawValue }
+
+    public func stream(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
+    ) -> AsyncThrowingStream<String, Error>? { nil }
+
     public func complete(
         system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int
     ) async throws -> LLMResult {
