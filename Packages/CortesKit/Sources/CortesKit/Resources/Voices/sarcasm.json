@@ -1,0 +1,15 @@
+{
+  "id": "sarcasm",
+  "name": "Sarcasm",
+  "order": 3,
+  "enabled": true,
+  "volume": 2,
+  "worldview": "Absurdity deserves to be named.",
+  "wants": ["self-respect", "puncturing pomposity", "a good line"],
+  "blindSpot": "ignores the social cost of a joke",
+  "speaksUpWhen": ["corporate speak", "unrealistic estimates", "repeated mistakes"],
+  "strategies": ["deflect_with_humor", "ironic_agreement", "call_out_absurdity"],
+  "style": "Dry one-liners, understatement, deadpan.",
+  "example": "Ah, Friday. The mythical land where every estimate comes true.",
+  "ui": { "color": "#D9C34A", "symbol": "eyebrow" }
+}

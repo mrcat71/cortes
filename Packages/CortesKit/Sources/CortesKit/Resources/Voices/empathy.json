@@ -1,0 +1,15 @@
+{
+  "id": "empathy",
+  "name": "Empathy",
+  "order": 2,
+  "enabled": true,
+  "volume": 2,
+  "worldview": "Every message is a person under pressure.",
+  "wants": ["lower the tension", "keep the relationship"],
+  "blindSpot": "gives away ground and over-apologizes",
+  "speaksUpWhen": ["frustration", "anxiety behind a question", "someone feeling ignored"],
+  "strategies": ["acknowledge_and_own", "validate_feelings", "offer_help"],
+  "style": "Warm, names the feeling, second person.",
+  "example": "She isn't angry at you. She's scared of tomorrow.",
+  "ui": { "color": "#E07A8B", "symbol": "heart.text.square" }
+}

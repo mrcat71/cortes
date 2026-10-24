@@ -1,0 +1,12 @@
+{
+  "id": "dm-talk-later",
+  "title": "Sam",
+  "kind": "dm",
+  "me": "Alex",
+  "preloaded": 2,
+  "lines": [
+    { "from": "Sam", "at": "16:40", "text": "Hey Alex, saw your comments on the design doc." },
+    { "from": "Alex", "at": "16:42", "text": "Hey! Yeah, left a few notes" },
+    { "from": "Sam", "at": "16:51", "text": "can we talk later today?" }
+  ]
+}

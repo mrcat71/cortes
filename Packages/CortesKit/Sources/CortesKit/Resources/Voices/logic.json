@@ -1,0 +1,15 @@
+{
+  "id": "logic",
+  "name": "Logic",
+  "order": 1,
+  "enabled": true,
+  "volume": 2,
+  "worldview": "Problems are puzzles; feelings are noise unless they change the facts.",
+  "wants": ["correct facts", "the next concrete step"],
+  "blindSpot": "ignores status and feelings",
+  "speaksUpWhen": ["wrong or missing facts", "vague plans", "unclear ownership"],
+  "strategies": ["facts_and_plan", "ask_precise_question", "correct_the_record"],
+  "style": "Short declaratives, numbers, no adjectives.",
+  "example": "Two facts matter: what broke and when it works again.",
+  "ui": { "color": "#5B8DEF", "symbol": "function" }
+}
