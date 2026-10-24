@@ -20,7 +20,7 @@ public struct SuggestionResult: Sendable {
     public var latency: TimeInterval
     public var model: String
     public var repaired: Bool
-    public var cloud: Bool
+    public var origin: LLMOrigin
 }
 
 /// Prompt → model → validation (one repair retry) → alias restore → decision.
@@ -41,9 +41,12 @@ public struct SuggestionEngine: Sendable {
         let (chat, pseudonymizer) = Self.prepare(request.snapshot, pseudonymize: request.pseudonymize)
         let system = PromptBuilder.system(voices: voices)
         let user = PromptBuilder.user(chat: chat, mode: request.mode)
+        // Local decoding is grammar-constrained by this schema; cloud backends ignore it.
+        let schema = Data(SchemaBuilder.schema(voices: voices).utf8)
 
         var turns = [ChatTurn(role: "user", content: user)]
-        let first = try await backend.complete(system: system, turns: turns, temperature: 0.8, maxTokens: 1200)
+        let first = try await backend.complete(
+            system: system, turns: turns, temperature: 0.8, maxTokens: 1200, schema: schema)
         var output = first
         var repaired = false
         var batch: VoiceBatch
@@ -54,7 +57,8 @@ public struct SuggestionEngine: Sendable {
             try Task.checkCancellation()
             turns.append(ChatTurn(role: "assistant", content: first.text))
             turns.append(ChatTurn(role: "user", content: PromptBuilder.repair(errors: error.localizedDescription)))
-            output = try await backend.complete(system: system, turns: turns, temperature: 0.3, maxTokens: 1200)
+            output = try await backend.complete(
+                system: system, turns: turns, temperature: 0.3, maxTokens: 1200, schema: schema)
             batch = try ResponseParser.parse(output.text, voices: voices)
             repaired = true
         }
@@ -74,7 +78,7 @@ public struct SuggestionEngine: Sendable {
             latency: Date().timeIntervalSince(started),
             model: output.model,
             repaired: repaired,
-            cloud: backend.isCloud)
+            origin: backend.origin)
     }
 
     /// Keeps a recent window (≤ 20 messages, ≤ 6000 characters), sanitizes it and applies aliases.

@@ -1,17 +1,44 @@
 import Foundation
 
 public enum Sensitivity: String, CaseIterable, Sendable, Codable, Identifiable {
+    case every
     case low
     case medium
     case high
 
     public var id: String { rawValue }
 
+    public var title: String {
+        switch self {
+        case .every: "Every message"
+        case .low: "Low"
+        case .medium: "Medium"
+        case .high: "High"
+        }
+    }
+
     public var threshold: Double {
         switch self {
+        case .every: 0
         case .low: 0.6
         case .medium: 0.45
         case .high: 0.3
+        }
+    }
+
+    /// Auto-mode cooldowns. "Every message" leans on the 1.5 s debounce and revision dedup instead:
+    /// local inference makes per-message runs cheap, and cooldowns would silently skip messages.
+    public var conversationCooldown: TimeInterval {
+        switch self {
+        case .every: 0
+        case .low, .medium, .high: 20
+        }
+    }
+
+    public var globalCooldown: TimeInterval {
+        switch self {
+        case .every: 0
+        case .low, .medium, .high: 10
         }
     }
 }

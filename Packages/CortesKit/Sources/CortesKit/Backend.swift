@@ -19,8 +19,16 @@ public struct LLMResult: Sendable {
     public var completionTokens: Int?
 }
 
+/// Where the answers come from; drives the overlay badge and the consent copy.
+public enum LLMOrigin: String, Sendable {
+    case cloud
+    case local
+    case replay
+}
+
 public enum LLMError: LocalizedError, Sendable {
     case missingKey
+    case unavailable(String)
     case http(Int, String)
     case badResponse(String)
     case invalidOutput(String)
@@ -28,7 +36,8 @@ public enum LLMError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .missingKey: "No z.ai API key. Add it in Settings → Model."
-        case .http(let code, let message): "z.ai returned HTTP \(code): \(message)"
+        case .unavailable(let message): message
+        case .http(let code, let message): "The model service returned HTTP \(code): \(message)"
         case .badResponse(let detail): "Unexpected response from the model: \(detail)"
         case .invalidOutput(let detail): "The model's answer didn't match the format: \(detail)"
         }
@@ -36,8 +45,20 @@ public enum LLMError: LocalizedError, Sendable {
 }
 
 public protocol LLMBackend: Sendable {
-    var isCloud: Bool { get }
-    func complete(system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int) async throws -> LLMResult
+    var origin: LLMOrigin { get }
+    /// `schema`: a JSON schema (as raw JSON `Data`) the backend may enforce through
+    /// grammar-constrained decoding. Backends that can't enforce it ignore it and rely on the validator.
+    func complete(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
+    ) async throws -> LLMResult
+}
+
+extension LLMBackend {
+    public func complete(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int
+    ) async throws -> LLMResult {
+        try await complete(system: system, turns: turns, temperature: temperature, maxTokens: maxTokens, schema: nil)
+    }
 }
 
 public enum ZAIEndpoint {
@@ -79,10 +100,13 @@ public actor ZAIBackend: LLMBackend {
         self.session = session
     }
 
-    public nonisolated var isCloud: Bool { true }
+    public nonisolated var origin: LLMOrigin { .cloud }
 
-    public func complete(system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int) async throws -> LLMResult {
+    public func complete(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
+    ) async throws -> LLMResult {
         guard !config.apiKey.isEmpty else { throw LLMError.missingKey }
+        // z.ai's JSON mode doesn't take a schema; ResponseParser enforces the shape instead.
         let base = config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
         guard let url = URL(string: base + "/chat/completions") else {
             throw LLMError.badResponse("invalid base URL \(config.baseURL)")
@@ -156,6 +180,7 @@ public actor ZAIBackend: LLMBackend {
 
     static func errorMessage(from data: Data) -> String {
         if let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let error = root["error"] as? String { return error }
             if let error = root["error"] as? [String: Any], let message = error["message"] as? String {
                 return message
             }

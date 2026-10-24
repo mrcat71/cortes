@@ -14,7 +14,9 @@ struct OverlayView: View {
             case .thinking:
                 ThinkingView(voices: model.voices.filter(\.enabled))
             case .consent(let snapshot):
-                ConsentView(title: snapshot.key.title, allow: { model.allowAndAsk(snapshot) }, cancel: model.dismissOverlay)
+                ConsentView(
+                    engine: model.engine, title: snapshot.key.title,
+                    allow: { model.allowAndAsk(snapshot) }, cancel: model.dismissOverlay)
             case .failure(let message):
                 FailureView(
                     message: message, showGrant: !model.axTrusted, retry: model.retry,
@@ -54,7 +56,11 @@ struct OverlayView: View {
                 Badge(text: "outdated", color: .orange)
             }
             if case .result(let result) = model.phase {
-                Badge(text: result.cloud ? "CLOUD" : "REPLAY", color: result.cloud ? .blue : .gray)
+                switch result.origin {
+                case .cloud: Badge(text: "CLOUD", color: .blue)
+                case .local: Badge(text: "LOCAL", color: .green)
+                case .replay: Badge(text: "REPLAY", color: .gray)
+                }
             }
             Button(action: model.retry) { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain)
@@ -110,18 +116,36 @@ private struct ThinkingView: View {
 }
 
 private struct ConsentView: View {
+    let engine: Engine
     let title: String
     let allow: () -> Void
     let cancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Send “\(title)” to z.ai?")
-                .font(.headline)
-            Text("The voices run on z.ai's cloud for now. Recent messages from this conversation are sent with names replaced by aliases. Only allow demo or test conversations.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            switch engine {
+            case .cloud:
+                Text("Send “\(title)” to z.ai?")
+                    .font(.headline)
+                Text("The voices run on z.ai's cloud. Recent messages from this conversation are sent with names replaced by aliases. Only allow demo or test conversations.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .local:
+                Text("Ask the voices about “\(title)”?")
+                    .font(.headline)
+                Text("The voices run locally through Ollama on this Mac. Nothing leaves the machine; names are still replaced by aliases before prompting.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .replay:
+                Text("Ask the voices about “\(title)”?")
+                    .font(.headline)
+                Text("Offline replay: a canned answer, nothing sent anywhere.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Allow and ask", action: allow).buttonStyle(.borderedProminent)
                 Button("Not now", action: cancel)

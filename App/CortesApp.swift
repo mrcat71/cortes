@@ -42,7 +42,7 @@ struct MenuContent: View {
         }
         if let key = model.current?.key, key.app != "demo" {
             Toggle(
-                "Allow cloud analysis: \(key.title)",
+                model.engine == .cloud ? "Allow cloud analysis: \(key.title)" : "Allow analysis: \(key.title)",
                 isOn: Binding(get: { model.isAllowed(key) }, set: { model.setAllowed(key, $0) }))
         }
         Divider()

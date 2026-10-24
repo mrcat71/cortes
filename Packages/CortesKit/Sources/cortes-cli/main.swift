@@ -4,8 +4,9 @@ import Foundation
 // Developer CLI:
 //   cortes-cli slack [--raw]                 read the focused Slack conversation (text masked unless --raw)
 //   cortes-cli prompt <scenario> [count]     print the prompts for a demo scenario
-//   cortes-cli ask <scenario> [count]        run the pipeline; uses ZAI_API_KEY / ZAI_BASE_URL / ZAI_MODEL,
-//                                            or the offline replay backend when ZAI_API_KEY is unset
+//   cortes-cli ask <scenario> [count]        run the pipeline; picks the backend from the environment:
+//                                            ZAI_API_KEY → z.ai, OLLAMA_URL/OLLAMA_MODEL → local Ollama,
+//                                            otherwise the offline replay backend
 
 func mask(_ text: String) -> String {
     String(text.map { $0.isLetter ? ($0.isUppercase ? "X" : "x") : ($0.isNumber ? "9" : $0) })
@@ -72,6 +73,10 @@ case "ask":
                 baseURL: env["ZAI_BASE_URL"] ?? ZAIEndpoint.general,
                 model: env["ZAI_MODEL"] ?? "glm-5.2",
                 apiKey: key))
+        } else if env["OLLAMA_URL"] != nil || env["OLLAMA_MODEL"] != nil {
+            OllamaBackend(config: OllamaConfig(
+                baseURL: env["OLLAMA_URL"] ?? OllamaConfig.defaultURL,
+                model: env["OLLAMA_MODEL"] ?? OllamaConfig.defaultModel))
         } else {
             ReplayBackend()
         }

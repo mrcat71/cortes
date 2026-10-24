@@ -60,9 +60,11 @@ public struct Scenario: Codable, Sendable, Hashable, Identifiable {
 public struct ReplayBackend: LLMBackend {
     public init() {}
 
-    public var isCloud: Bool { false }
+    public var origin: LLMOrigin { .replay }
 
-    public func complete(system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int) async throws -> LLMResult {
+    public func complete(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
+    ) async throws -> LLMResult {
         try await Task.sleep(for: .milliseconds(900))
         return LLMResult(text: Self.canned, latency: 0.9, model: "replay", promptTokens: nil, completionTokens: nil)
     }

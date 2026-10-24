@@ -72,4 +72,82 @@ import Testing
         #expect(SlackAXReader.messageTimestamp(fromDOMID: "message-list_1792706400000divider") == nil)
         #expect(SlackAXReader.messageTimestamp(fromDOMID: "message-list_1792620000000.D0BHC47HKU4") == nil)
     }
+
+    @Test func schemaIsOrderedValidJSONWithPerVoiceEnums() throws {
+        let json = SchemaBuilder.schema(voices: voices)
+        let root = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        let properties = try #require(root["properties"] as? [String: Any])
+        #expect(properties["read"] is [String: Any])
+        let voicesSchema = try #require(properties["voices"] as? [String: Any])
+        let schemaVoices = try #require(voicesSchema["properties"] as? [String: Any])
+        for voice in voices {
+            let take = try #require(schemaVoices[voice.id] as? [String: Any])
+            let properties = try #require(take["properties"] as? [String: Any])
+            #expect(Set(try #require(take["required"] as? [String])) == Set(properties.keys))
+            // each voice may only pick its own strategies
+            let strategy = try #require(properties["strategy"] as? [String: Any])
+            #expect(try #require(strategy["enum"] as? [String]) == voice.strategies)
+            for key in ["rel", "help", "risk", "fun"] {
+                let score = try #require(properties[key] as? [String: Any])
+                #expect(score["minimum"] as? Int == 0 && score["maximum"] as? Int == 9)
+            }
+        }
+        // key order matters for grammar-constrained decoding: scores after the text they judge
+        let toMe = try #require(json.range(of: "\"to_me\""))
+        let gist = try #require(json.range(of: "\"gist\""))
+        let reply = try #require(json.range(of: "\"reply\""))
+        let help = try #require(json.range(of: "\"help\""))
+        #expect(toMe.lowerBound < gist.lowerBound)
+        #expect(reply.lowerBound < help.lowerBound)
+    }
+
+    @Test func cannedOutputMatchesTheSchemaVoiceSet() throws {
+        let canned = try #require(ResponseParser.extractJSONObject(ReplayBackend.canned))
+        let schema = try #require(
+            JSONSerialization.jsonObject(with: Data(SchemaBuilder.schema(voices: voices).utf8)) as? [String: Any])
+        let cannedVoices = try #require(canned["voices"] as? [String: Any])
+        let schemaProperties = try #require(schema["properties"] as? [String: Any])
+        let voicesSchema = try #require(schemaProperties["voices"] as? [String: Any])
+        let schemaVoices = try #require(voicesSchema["properties"] as? [String: Any])
+        #expect(Set(cannedVoices.keys) == Set(schemaVoices.keys))
+    }
+
+    @Test func orderedJSONKeepsKeyOrderAndEscapes() {
+        let value = OrderedJSON.object([("z", .int(1)), ("a\"b", .string("line\nnext"))])
+        #expect(value.serialized == "{\"z\":1,\"a\\\"b\":\"line\\nnext\"}")
+    }
+
+    @Test func everyMessageSensitivityPassesTheLowestPossibleScore() {
+        #expect(Sensitivity.every.threshold == 0)
+        #expect(Sensitivity.every.conversationCooldown == 0 && Sensitivity.every.globalCooldown == 0)
+        #expect(Sensitivity.medium.conversationCooldown > 0 && Sensitivity.medium.globalCooldown > 0)
+        // a bare acknowledgement in a channel scores 0; "every" must still fire on it
+        let snapshot = ConversationSnapshot(
+            key: ConversationKey(app: "demo", title: "c"), kind: .channel,
+            messages: [ChatMessage(id: "1", author: "A", text: "ok")], myName: "Me", anchorFrame: nil)
+        #expect(TriggerPolicy.attentionScore(snapshot) >= Sensitivity.every.threshold)
+    }
+
+    @Test func engineHandsTheVoiceSchemaToTheBackend() async throws {
+        let scenario = try #require(Scenario.loadBundled().first)
+        let spy = SchemaSpyBackend()
+        let engine = SuggestionEngine(backend: spy, voices: voices)
+        _ = try await engine.run(
+            SuggestionRequest(snapshot: scenario.snapshot(visibleCount: 5), mode: "manual", pseudonymize: true))
+        let received = try #require(await spy.receivedSchema)
+        #expect(String(decoding: received, as: UTF8.self) == SchemaBuilder.schema(voices: voices))
+    }
+}
+
+/// Records the schema the engine passes down, so the grammar-constrained path is covered without a model.
+actor SchemaSpyBackend: LLMBackend {
+    nonisolated let origin = LLMOrigin.local
+    private(set) var receivedSchema: Data?
+
+    func complete(
+        system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
+    ) async throws -> LLMResult {
+        receivedSchema = schema
+        return LLMResult(text: ReplayBackend.canned, latency: 0, model: "spy", promptTokens: nil, completionTokens: nil)
+    }
 }

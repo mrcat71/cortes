@@ -45,6 +45,22 @@ enum EndpointPreset: String, CaseIterable, Identifiable {
     }
 }
 
+enum Engine: String, CaseIterable, Identifiable {
+    case local
+    case cloud
+    case replay
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .local: "Local (Ollama)"
+        case .cloud: "z.ai cloud"
+        case .replay: "Replay (offline)"
+        }
+    }
+}
+
 enum OverlayPhase {
     case hidden
     case thinking(ConversationKey)
@@ -65,6 +81,7 @@ final class AppModel {
     static let demoWindowTitle = "Demo Chat"
     static let demoWindowID = "demo-chat"
     static let modelSuggestions = ["glm-5.2", "glm-5-turbo", "glm-4.7", "glm-4.5-air", "glm-5.3"]
+    static let ollamaModelSuggestions = ["gemma4:12b", "gemma4:26b", "gemma4:e4b", "gemma4:12b-mlx"]
 
     @ObservationIgnored private let defaults = UserDefaults.standard
     @ObservationIgnored private let log = Logger(subsystem: AppModel.bundleID, category: "app")
@@ -77,7 +94,9 @@ final class AppModel {
     var modelName: String { didSet { defaults.set(modelName, forKey: "model") } }
     var disableThinking: Bool { didSet { defaults.set(disableThinking, forKey: "disableThinking") } }
     var pseudonymize: Bool { didSet { defaults.set(pseudonymize, forKey: "pseudonymize") } }
-    var useReplay: Bool { didSet { defaults.set(useReplay, forKey: "useReplay") } }
+    var engine: Engine { didSet { defaults.set(engine.rawValue, forKey: "engine") } }
+    var ollamaURL: String { didSet { defaults.set(ollamaURL, forKey: "ollamaURL") } }
+    var ollamaModel: String { didSet { defaults.set(ollamaModel, forKey: "ollamaModel") } }
     var myNameOverride: String {
         didSet {
             defaults.set(myNameOverride, forKey: "myName")
@@ -126,7 +145,11 @@ final class AppModel {
         modelName = defaults.string(forKey: "model") ?? "glm-5.2"
         disableThinking = defaults.object(forKey: "disableThinking") as? Bool ?? true
         pseudonymize = defaults.object(forKey: "pseudonymize") as? Bool ?? true
-        useReplay = defaults.bool(forKey: "useReplay")
+        // First migration step from the old replay toggle; afterwards the engine key wins.
+        engine = Engine(rawValue: defaults.string(forKey: "engine") ?? "")
+            ?? (defaults.bool(forKey: "useReplay") ? .replay : .local)
+        ollamaURL = defaults.string(forKey: "ollamaURL") ?? OllamaConfig.defaultURL
+        ollamaModel = defaults.string(forKey: "ollamaModel") ?? OllamaConfig.defaultModel
         myNameOverride = defaults.string(forKey: "myName") ?? ""
         allowlist = defaults.stringArray(forKey: "allowlist") ?? []
         voices = VoiceRegistry.load()
@@ -153,6 +176,23 @@ final class AppModel {
         if !axTrusted { pollTrust() }
         demoReset()
         applyMode()
+        if engine == .local { warmUpLocalModel() }
+    }
+
+    /// Loads the model and caches the system prompt's prefix right after launch, so the first real
+    /// request only pays generation time. Ollama keeps it resident for the configured keep-alive.
+    private func warmUpLocalModel() {
+        let backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
+        let system = PromptBuilder.system(voices: voices.filter(\.enabled))
+        let log = self.log
+        Task(priority: .utility) {
+            do {
+                try await backend.warmUp(system: system)
+                log.notice("Ollama model warmed up")
+            } catch {
+                log.notice("Ollama warm-up skipped: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: Derived
@@ -273,8 +313,8 @@ final class AppModel {
         guard let last = snapshot.messages.last, !last.isMe else { return }
         guard !firedRevisions.contains(snapshot.key.id + "#" + snapshot.revision) else { return }
         let now = Date()
-        guard now.timeIntervalSince(lastFire[snapshot.key.id] ?? .distantPast) > 20,
-              now.timeIntervalSince(lastGlobalFire) > 10
+        guard now.timeIntervalSince(lastFire[snapshot.key.id] ?? .distantPast) > sensitivity.conversationCooldown,
+              now.timeIntervalSince(lastGlobalFire) > sensitivity.globalCooldown
         else { return }
         guard TriggerPolicy.attentionScore(snapshot) >= sensitivity.threshold else { return }
         run(snapshot, manual: false)
@@ -318,14 +358,18 @@ final class AppModel {
             return
         }
         let backend: any LLMBackend
-        if useReplay {
+        switch engine {
+        case .replay:
             backend = ReplayBackend()
-        } else if let key = apiKey() {
+        case .local:
+            backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
+        case .cloud:
+            guard let key = apiKey() else {
+                showFailure(LLMError.missingKey.localizedDescription, anchor: snapshot.anchorFrame)
+                return
+            }
             backend = ZAIBackend(config: ZAIConfig(
                 baseURL: baseURL, model: modelName, apiKey: key, disableThinking: disableThinking))
-        } else {
-            showFailure(LLMError.missingKey.localizedDescription, anchor: snapshot.anchorFrame)
-            return
         }
         firedRevisions.insert(snapshot.key.id + "#" + snapshot.revision)
         lastFire[snapshot.key.id] = Date()
@@ -445,21 +489,30 @@ final class AppModel {
     }
 
     func testConnection() async {
-        guard let key = apiKey() else {
-            connectionTestResult = LLMError.missingKey.localizedDescription
-            return
-        }
-        connectionTestResult = "Testing…"
-        let backend = ZAIBackend(config: ZAIConfig(
-            baseURL: baseURL, model: modelName, apiKey: key, disableThinking: disableThinking, timeout: 30))
-        do {
-            let result = try await backend.complete(
-                system: "Answer with a JSON object only.",
-                turns: [ChatTurn(role: "user", content: "Return {\"ok\":true}")],
-                temperature: 0, maxTokens: 20)
-            connectionTestResult = "OK: \(result.model) answered in \(String(format: "%.1f", result.latency)) s"
-        } catch {
-            connectionTestResult = error.localizedDescription
+        switch engine {
+        case .replay:
+            connectionTestResult = "Replay answers from a canned response; no connection needed."
+        case .local:
+            connectionTestResult = "Checking…"
+            connectionTestResult = await OllamaBackend(
+                config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel)).status()
+        case .cloud:
+            guard let key = apiKey() else {
+                connectionTestResult = LLMError.missingKey.localizedDescription
+                return
+            }
+            connectionTestResult = "Testing…"
+            let backend = ZAIBackend(config: ZAIConfig(
+                baseURL: baseURL, model: modelName, apiKey: key, disableThinking: disableThinking, timeout: 30))
+            do {
+                let result = try await backend.complete(
+                    system: "Answer with a JSON object only.",
+                    turns: [ChatTurn(role: "user", content: "Return {\"ok\":true}")],
+                    temperature: 0, maxTokens: 20)
+                connectionTestResult = "OK: \(result.model) answered in \(String(format: "%.1f", result.latency)) s"
+            } catch {
+                connectionTestResult = error.localizedDescription
+            }
         }
     }
 
