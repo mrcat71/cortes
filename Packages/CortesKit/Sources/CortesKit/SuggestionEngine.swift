@@ -28,12 +28,17 @@ public struct SuggestionEngine: Sendable {
     public let backend: any LLMBackend
     public let voices: [VoiceDefinition]
     public let recentTop: [String]
+    public let perspectiveMode: PerspectiveMode
     private let log = Logger(subsystem: "io.github.mrcat71.cortes", category: "engine")
 
-    public init(backend: any LLMBackend, voices: [VoiceDefinition], recentTop: [String] = []) {
+    public init(
+        backend: any LLMBackend, voices: [VoiceDefinition], recentTop: [String] = [],
+        perspectiveMode: PerspectiveMode = .innerVoices
+    ) {
         self.backend = backend
         self.voices = voices
         self.recentTop = recentTop
+        self.perspectiveMode = perspectiveMode
     }
 
     /// Previews contain complete voices, not a final recommendation. `nil` clears them before repair.
@@ -42,7 +47,7 @@ public struct SuggestionEngine: Sendable {
     ) async throws -> SuggestionResult {
         let started = Date()
         let (chat, pseudonymizer) = Self.prepare(request.snapshot, pseudonymize: request.pseudonymize)
-        let system = PromptBuilder.system(voices: voices)
+        let system = PromptBuilder.system(voices: voices, perspectiveMode: perspectiveMode)
         let user = PromptBuilder.user(chat: chat, mode: request.mode)
         // Local decoding is grammar-constrained by this schema; cloud backends ignore it.
         let schema = Data(SchemaBuilder.schema(voices: voices).utf8)

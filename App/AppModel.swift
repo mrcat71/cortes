@@ -84,12 +84,27 @@ final class AppModel {
     static let modelSuggestions = ["glm-5.2", "glm-5-turbo", "glm-4.7", "glm-4.5-air", "glm-5.3"]
     static let ollamaModelSuggestions = ["gemma4:12b", "gemma4:26b", "gemma4:e4b", "gemma4:12b-mlx"]
 
-    @ObservationIgnored private let defaults = UserDefaults.standard
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let log = Logger(subsystem: AppModel.bundleID, category: "app")
 
     // MARK: Settings (UserDefaults; the API key lives in Keychain)
 
     var mode: Mode { didSet { defaults.set(mode.rawValue, forKey: "mode"); applyMode() } }
+    var perspectiveMode: PerspectiveMode {
+        didSet {
+            guard oldValue != perspectiveMode else { return }
+            defaults.set(perspectiveMode.rawValue, forKey: "perspectiveMode")
+            cancelWork()
+            hideOverlay()
+            copiedVoiceID = nil
+            firedRevisions.removeAll()
+            lastFire.removeAll()
+            lastGlobalFire = .distantPast
+            recentTop.removeAll()
+            voices = VoiceRegistry.load(mode: perspectiveMode)
+            if started, engine == .local { warmUpLocalModel() }
+        }
+    }
     var sensitivity: Sensitivity { didSet { defaults.set(sensitivity.rawValue, forKey: "sensitivity") } }
     var baseURL: String { didSet { defaults.set(baseURL, forKey: "baseURL") } }
     var modelName: String { didSet { defaults.set(modelName, forKey: "model") } }
@@ -120,7 +135,7 @@ final class AppModel {
     var demoScenarioID: String { didSet { demoReset() } }
     private(set) var demoVisible = 0
 
-    let voices: [VoiceDefinition]
+    private(set) var voices: [VoiceDefinition]
     let scenarios: [Scenario]
 
     @ObservationIgnored private var overlay: OverlayController?
@@ -138,9 +153,11 @@ final class AppModel {
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var started = false
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         mode = Mode(rawValue: defaults.string(forKey: "mode") ?? "") ?? .manual
+        let perspectiveMode = PerspectiveMode(rawValue: defaults.string(forKey: "perspectiveMode") ?? "") ?? .innerVoices
+        self.perspectiveMode = perspectiveMode
         sensitivity = Sensitivity(rawValue: defaults.string(forKey: "sensitivity") ?? "") ?? .medium
         baseURL = defaults.string(forKey: "baseURL") ?? ZAIEndpoint.general
         modelName = defaults.string(forKey: "model") ?? "glm-5.2"
@@ -153,7 +170,7 @@ final class AppModel {
         ollamaModel = defaults.string(forKey: "ollamaModel") ?? OllamaConfig.defaultModel
         myNameOverride = defaults.string(forKey: "myName") ?? ""
         allowlist = defaults.stringArray(forKey: "allowlist") ?? []
-        voices = VoiceRegistry.load()
+        voices = VoiceRegistry.load(mode: perspectiveMode)
         scenarios = Scenario.loadBundled()
         demoScenarioID = scenarios.first?.id ?? ""
         hasAPIKey = KeychainStore.read(service: Self.bundleID, account: Self.keychainAccount) != nil
@@ -184,7 +201,7 @@ final class AppModel {
     /// request only pays generation time. Ollama keeps it resident for the configured keep-alive.
     private func warmUpLocalModel() {
         let backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
-        let system = PromptBuilder.system(voices: voices.filter(\.enabled))
+        let system = PromptBuilder.system(voices: voices.filter(\.enabled), perspectiveMode: perspectiveMode)
         let log = self.log
         Task(priority: .utility) {
             do {
@@ -364,7 +381,7 @@ final class AppModel {
         let backend: any LLMBackend
         switch engine {
         case .replay:
-            backend = ReplayBackend()
+            backend = ReplayBackend(perspectiveMode: perspectiveMode)
         case .local:
             backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
         case .cloud:
@@ -382,7 +399,8 @@ final class AppModel {
         phase = .thinking(snapshot.key)
         showOverlay(anchor: snapshot.anchorFrame)
 
-        let engine = SuggestionEngine(backend: backend, voices: voices.filter(\.enabled), recentTop: recentTop)
+        let engine = SuggestionEngine(
+            backend: backend, voices: voices.filter(\.enabled), recentTop: recentTop, perspectiveMode: perspectiveMode)
         let request = SuggestionRequest(snapshot: snapshot, mode: manual ? "manual" : "auto", pseudonymize: pseudonymize)
         inflight = Task { [weak self] in
             do {

@@ -7,6 +7,12 @@ Inspired by Disco Elysium's skill system, Logic, Empathy, Sarcasm and Paranoia i
 disagree, and suggest different replies in a floating overlay. A deterministic decision layer recommends
 a reply and explains risk flags. Sometimes the recommendation is to say nothing yet.
 
+In **Settings → General → Perspectives**, switch between **Inner voices** (the default) and **Business**.
+Business brings Developer, Product Owner, DevOps and QA perspectives to the same conversation, weighing
+implementation, customer value, operational reliability and testing. The choice persists across launches
+and is separate from Manual/Auto/Paused activation and Local/Cloud/Replay inference. Switching cancels
+pending suggestions and dismisses the old results; ask again to hear the selected perspectives.
+
 The default AI is **Gemma 4 12B running locally through Ollama**. No API key is needed. Cortes only
 copies replies to your clipboard: it never sends messages. This walkthrough covers Demo Chat and Slack;
 suggestions are displayed as text.
@@ -82,6 +88,19 @@ professional advice system. The knowledge is explicit and inspectable rather tha
 | Sarcasm | Naming absurdity and preserving self-respect | The social cost of a joke |
 | Paranoia | Protecting reputation and recording commitments | Seeing threats that may not exist |
 
+Business mode uses a separate [set of role definitions](Packages/CortesKit/Sources/CortesKit/Resources/BusinessVoices/):
+
+| Perspective | What it prioritizes | Deliberate blind spot |
+| --- | --- | --- |
+| Developer | Implementable scope and maintainable changes | Engineering elegance over customer value |
+| Product Owner | Customer outcomes, priorities and acceptance criteria | Technical debt and operational effort |
+| DevOps | Safe releases, observability and recovery | Overweighting worst-case failures |
+| QA | Reproducible failures and regression evidence | Chasing unlikely edge cases |
+
+These are simulated perspectives, not other participants or independent agents. Replies are still
+written for you to send as yourself. Both modes share validation, risk checks, streaming and consent controls.
+Replay uses a fixed answer matching the selected mode, not live role analysis.
+
 - [Voice definitions](Packages/CortesKit/Sources/CortesKit/Resources/Voices/) contain the worldviews,
   goals, blind spots, example thoughts and distinct strategy lists. Overlapping strategy lists are rejected.
 - [PromptBuilder.swift](Packages/CortesKit/Sources/CortesKit/PromptBuilder.swift) distinguishes your
@@ -96,7 +115,11 @@ professional advice system. The knowledge is explicit and inspectable rather tha
 
 To add a voice, copy a bundled JSON file and give it a unique `id` and non-overlapping strategies.
 Personal overrides can live in `~/Library/Application Support/Cortes/Voices/`; a matching `id` replaces
-the bundled definition. Restart the app to load changes.
+the bundled definition. Business overrides belong in its `Business/` subdirectory, so each mode's
+voices stay separate. Restart the app or switch perspective modes to load changes.
+
+For a synthetic business-mode prompt or pipeline check, append `--business` to the CLI's `prompt` or
+`ask` command, for example `swift run --package-path Packages/CortesKit cortes-cli prompt launch-war-room --business`.
 
 ## Model, integration and licenses
 
