@@ -40,6 +40,27 @@ are cut to 500 characters before prompting. Threads in the side panel aren't rea
 Needs a key in *Settings → Model*. `cortes-cli ask <scenario>` with `ZAI_API_KEY` set prints latency, the
 validator result and the verdict.
 
+## E2o: local Ollama + Gemma 4 12B latency and JSON reliability (2026-10-26): go, with one caveat
+
+Setup: Ollama 0.40.10, `gemma4:12b` (default quantization, 7.7 GB), MacBook Pro M4. One `/api/chat` call
+per run, thinking off, `num_ctx` 8192, grammar-constrained by the per-batch JSON schema (`format`), 1200
+token budget. `OLLAMA_MODEL=gemma4:12b swift run cortes-cli ask <scenario>`.
+
+Results (3 runs, 2 scenarios):
+
+- JSON reliability: 3/3 valid outputs on the first try, zero repairs. Strategy enums, score bounds and
+  key sets are enforced by the grammar, so the validator only has to police word counts and voice presence.
+- The schema's key order survives in the output: `read` first, scores after each voice's text.
+- Latency: 25.3 s cold (model load) and ~26.6 s warm for a 4-voice batch on the 12B dense model. That is
+  prompt eval plus ~400 generated tokens; usable for manual ⌃⌥V runs, sluggish for auto-on-every-message.
+  The MoE `gemma4:26b` (4B active) or `gemma4:e4b` should generate faster if this bothers; untested here.
+- Verdict quality: `launch-war-room` read as to_me=true / tension 8 / need now, recommended Logic with a
+  placeholder-bearing reply, and the decision engine correctly benched Sarcasm (humor under tension).
+- Caveat: on `ru-report` (a Russian chat) the gist came back in Russian but thoughts and replies drifted
+  to English, violating the prompt's language rule. A 12B local model is weaker at such instruction
+  detail than the cloud GLMs; an explicit "the chat's language is X" line in the situation header is the
+  likely fix if it matters.
+
 ## E4: overlay behavior: partly verified
 
 Verified through Accessibility automation with the replay backend: the panel docks next to the anchor
