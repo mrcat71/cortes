@@ -1,6 +1,34 @@
 import Foundation
 import os
 
+public enum PerspectiveMode: String, CaseIterable, Identifiable, Sendable, Codable {
+    case innerVoices
+    case business
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .innerVoices: "Inner voices"
+        case .business: "Business"
+        }
+    }
+
+    public var summary: String {
+        switch self {
+        case .innerVoices: "Logic, Empathy, Sarcasm and Paranoia offer different reactions to the conversation."
+        case .business: "Developer, Product Owner, DevOps and QA weigh implementation, value, reliability and quality."
+        }
+    }
+
+    var resourceDirectory: String {
+        switch self {
+        case .innerVoices: "Voices"
+        case .business: "BusinessVoices"
+        }
+    }
+}
+
 public struct VoiceDefinition: Codable, Sendable, Hashable, Identifiable {
     public struct Appearance: Codable, Sendable, Hashable {
         public var color: String
@@ -32,10 +60,15 @@ public enum VoiceRegistry {
             .appendingPathComponent("Cortes/Voices", isDirectory: true)
     }
 
-    public static func load() -> [VoiceDefinition] {
+    public static func load(mode: PerspectiveMode = .innerVoices) -> [VoiceDefinition] {
+        load(mode: mode, userDirectory: userDirectory)
+    }
+
+    static func load(mode: PerspectiveMode, userDirectory: URL) -> [VoiceDefinition] {
         var byID: [String: VoiceDefinition] = [:]
-        let bundled = Bundle.module.url(forResource: "Voices", withExtension: nil)
-        for dir in [bundled, userDirectory].compactMap({ $0 }) {
+        let bundled = Bundle.module.url(forResource: mode.resourceDirectory, withExtension: nil)
+        let custom = mode == .business ? userDirectory.appendingPathComponent("Business", isDirectory: true) : userDirectory
+        for dir in [bundled, custom].compactMap({ $0 }) {
             for voice in decodeAll(in: dir) {
                 byID[voice.id] = voice
             }

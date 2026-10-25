@@ -13,6 +13,7 @@ let package = Package(
             name: "CortesKit",
             resources: [
                 .copy("Resources/Voices"),
+                .copy("Resources/BusinessVoices"),
                 .copy("Resources/Scenarios"),
             ]
         ),

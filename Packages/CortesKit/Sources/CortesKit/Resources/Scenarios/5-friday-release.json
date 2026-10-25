@@ -1,0 +1,16 @@
+{
+  "id": "friday-release",
+  "title": "#friday-release",
+  "kind": "channel",
+  "me": "Alex",
+  "preloaded": 2,
+  "lines": [
+    { "from": "Maria", "at": "16:35", "text": "The checkout fix is scheduled for 17:00. Our biggest customer is waiting before opening their weekend sale." },
+    { "from": "Alex", "at": "16:36", "text": "The fix is on staging. It also adds the new payment-status column. Waiting for the last test run." },
+    { "from": "Priya", "at": "16:41", "text": "One retry test charged the same order twice. Only happened once in ten runs, but I haven't found the cause." },
+    { "from": "Tom", "at": "16:43", "text": "The old app version can't read the new status values. Rolling back the app alone won't be enough. I'm the only on-call engineer tonight." },
+    { "from": "Maria", "at": "16:45", "text": "Their current checkout fails for some customers, so waiting also has a cost. Could we enable the fix for just that customer?" },
+    { "from": "Alex", "at": "16:46", "text": "We have a customer-level feature flag, but we haven't tested payment retries with it enabled." },
+    { "from": "Maria", "at": "16:48", "text": "@Alex I need a go/no-go and a next step before the customer call. What can we safely commit to?" }
+  ]
+}

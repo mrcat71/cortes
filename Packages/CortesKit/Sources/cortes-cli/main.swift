@@ -5,8 +5,8 @@ import Synchronization
 
 // Developer CLI:
 //   cortes-cli slack [--raw]                 read the focused Slack conversation (text masked unless --raw)
-//   cortes-cli prompt <scenario> [count]     print the prompts for a demo scenario
-//   cortes-cli ask <scenario> [count]        run the pipeline; picks the backend from the environment:
+//   cortes-cli prompt <scenario> [count] [--business]  print the prompts for a demo scenario
+//   cortes-cli ask <scenario> [count] [--business]     run the pipeline; picks the backend from the environment:
 //                                            ZAI_API_KEY → z.ai, OLLAMA_URL/OLLAMA_MODEL → local Ollama,
 //                                            otherwise the offline replay backend
 //   cortes-cli speech-file <path> [locale]   transcribe a short local audio fixture, never capture live audio
@@ -29,7 +29,8 @@ func scenario(_ id: String?) -> Scenario {
     return found
 }
 
-let args = Array(CommandLine.arguments.dropFirst())
+let perspectiveMode: PerspectiveMode = CommandLine.arguments.contains("--business") ? .business : .innerVoices
+let args = CommandLine.arguments.dropFirst().filter { $0 != "--business" }
 switch args.first {
 case "slack":
     let raw = args.contains("--raw")
@@ -62,7 +63,7 @@ case "prompt":
     let s = scenario(args.dropFirst().first)
     let count = args.dropFirst(2).first.flatMap(Int.init) ?? s.lines.count
     let (chat, _) = SuggestionEngine.prepare(s.snapshot(visibleCount: count), pseudonymize: true)
-    print(PromptBuilder.system(voices: VoiceRegistry.load()))
+    print(PromptBuilder.system(voices: VoiceRegistry.load(mode: perspectiveMode), perspectiveMode: perspectiveMode))
     print("---")
     print(PromptBuilder.user(chat: chat, mode: "manual"))
 
@@ -106,9 +107,10 @@ case "ask":
                 baseURL: env["OLLAMA_URL"] ?? OllamaConfig.defaultURL,
                 model: env["OLLAMA_MODEL"] ?? OllamaConfig.defaultModel))
         } else {
-            ReplayBackend()
+            ReplayBackend(perspectiveMode: perspectiveMode)
         }
-    let engine = SuggestionEngine(backend: backend, voices: VoiceRegistry.load())
+    let engine = SuggestionEngine(
+        backend: backend, voices: VoiceRegistry.load(mode: perspectiveMode), perspectiveMode: perspectiveMode)
     do {
         let result = try await engine.run(SuggestionRequest(snapshot: s.snapshot(visibleCount: count), mode: "manual", pseudonymize: true))
         let read = result.verdict.read
@@ -127,5 +129,5 @@ case "ask":
     }
 
 default:
-    fail("usage: cortes-cli slack [--raw] | prompt <scenario> [count] | ask <scenario> [count] | speech-file <path> [locale]")
+    fail("usage: cortes-cli slack [--raw] | prompt <scenario> [count] [--business] | ask <scenario> [count] [--business] | speech-file <path> [locale]")
 }

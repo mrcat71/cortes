@@ -7,6 +7,12 @@ Inspired by Disco Elysium's skill system, Logic, Empathy, Sarcasm and Paranoia i
 disagree, and suggest different replies in a floating overlay. A deterministic decision layer recommends
 a reply and explains risk flags. Sometimes the recommendation is to say nothing yet.
 
+In **Settings → General → Perspectives**, switch between **Inner voices** (the default) and **Business**.
+Business brings Developer, Product Owner, DevOps and QA perspectives to the same conversation, weighing
+implementation, customer value, operational reliability and testing. The choice persists across launches
+and is separate from Manual/Auto/Paused activation and Local/Cloud/Replay inference. Switching cancels
+pending suggestions and dismisses the old results; ask again to hear the selected perspectives.
+
 The default AI is **Gemma 4 12B running locally through Ollama**. No API key is needed. Cortes only
 copies replies to your clipboard: it never sends messages. This walkthrough covers Demo Chat and Slack;
 suggestions are displayed as text. Additional applications can provide text context, and audio-only
@@ -55,6 +61,25 @@ one repair attempt; a failed or interrupted stream never becomes a final recomme
 
 For an offline UI fallback, select **Settings → Model → Replay**. It returns a fixed, canned answer,
 not live model inference and not an evaluation result.
+
+### Conversations for the live demo
+
+Select a conversation in Demo Chat, then use **Next message** to reveal the dilemma. Each starts with
+two messages; **Restart** returns to that opening. All participants and conversations are synthetic.
+
+| Scenario in the picker | CLI ID | What to explore |
+| --- | --- | --- |
+| #friday-release | `friday-release` | A customer needs a checkout fix, but a retry test double-charges an order and rollback is not straightforward. Compare Business perspectives on scope, release safety and test evidence. |
+| #checkout-scope | `scope-creep` | Sales has hinted at extra features before a fixed demo date. Negotiate the useful minimum without inventing an estimate or skipping regression tests. |
+| Jamie | `dm-credit` | A teammate claims sole credit, then asks you to run the presentation. Compare Inner voices on recognition, boundaries and preserving the relationship. |
+
+For a 3-5 minute hackathon walkthrough, use **Manual** activation and **Local (Ollama)** inference.
+Select **Business** perspectives and **#friday-release**, reveal all seven messages, and ask for advice.
+Compare the four replies and their trade-offs while completed voices appear. Switch to **Inner voices**
+and ask again on the same conversation to show how the lens changes, then Copy a reply for review.
+Live outputs vary; these are discussion cases, not scored model evaluations. Replay does not adapt to
+these conversations: its fixed answer is about the original launch-war-room scenario, so use that
+scenario if demonstrating the offline fallback.
 
 ### Use it with Slack
 
@@ -141,6 +166,19 @@ professional advice system. The knowledge is explicit and inspectable rather tha
 | Sarcasm | Naming absurdity and preserving self-respect | The social cost of a joke |
 | Paranoia | Protecting reputation and recording commitments | Seeing threats that may not exist |
 
+Business mode uses a separate [set of role definitions](Packages/CortesKit/Sources/CortesKit/Resources/BusinessVoices/):
+
+| Perspective | What it prioritizes | Deliberate blind spot |
+| --- | --- | --- |
+| Developer | Implementable scope and maintainable changes | Engineering elegance over customer value |
+| Product Owner | Customer outcomes, priorities and acceptance criteria | Technical debt and operational effort |
+| DevOps | Safe releases, observability and recovery | Overweighting worst-case failures |
+| QA | Reproducible failures and regression evidence | Chasing unlikely edge cases |
+
+These are simulated perspectives, not other participants or independent agents. Replies are still
+written for you to send as yourself. Both modes share validation, risk checks, streaming and consent controls.
+Replay uses a fixed answer matching the selected mode, not live role analysis.
+
 - [Voice definitions](Packages/CortesKit/Sources/CortesKit/Resources/Voices/) contain the worldviews,
   goals, blind spots, example thoughts and distinct strategy lists. Overlapping strategy lists are rejected.
 - [PromptBuilder.swift](Packages/CortesKit/Sources/CortesKit/PromptBuilder.swift) distinguishes your
@@ -155,7 +193,11 @@ professional advice system. The knowledge is explicit and inspectable rather tha
 
 To add a voice, copy a bundled JSON file and give it a unique `id` and non-overlapping strategies.
 Personal overrides can live in `~/Library/Application Support/Cortes/Voices/`; a matching `id` replaces
-the bundled definition. Restart the app to load changes.
+the bundled definition. Business overrides belong in its `Business/` subdirectory, so each mode's
+voices stay separate. Restart the app or switch perspective modes to load changes.
+
+For a synthetic business-mode prompt or pipeline check, append `--business` to the CLI's `prompt` or
+`ask` command, for example `swift run --package-path Packages/CortesKit cortes-cli prompt launch-war-room --business`.
 
 ## Model, integration and licenses
 
@@ -193,6 +235,9 @@ construction, invalid output, and Ollama's schema fallback and repair behavior:
 ```sh
 make test
 ```
+
+The `DemoTests` suite checks that all six conversations load, have distinct IDs and conversation keys,
+and retain unrevealed messages. It also checks speaker attribution and prompt focus at each reveal.
 
 The [proof-of-concept notes](docs/poc-results.md) record Slack capture, local-model latency and output
 reliability checks. They do **not** establish better communication outcomes than the same model alone.
@@ -248,8 +293,8 @@ plain-model benchmark has been recorded in this repository yet.
 
 ## Live demo and hackathon submission
 
-For a 3-5 minute demo: open Demo Chat with **Local (Ollama)**, reveal the launch-war-room messages,
-ask the voices, and compare a recommended reply with a risk-flagged one. Show the voice JSON,
+Follow the [live-demo conversation walkthrough](#conversations-for-the-live-demo) to compare Business
+and Inner voices on the same release decision. Show the voice JSON,
 `DecisionEngine.swift`, and the `/api/chat` call in `OllamaBackend.swift`. For a judge's new input, use an
 authorized test conversation in Slack. Disclose if you switch to the canned **Replay** fallback.
 

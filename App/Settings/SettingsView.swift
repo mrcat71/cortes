@@ -27,7 +27,17 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Picker("Mode", selection: $model.mode) {
+            Section("Perspectives") {
+                Picker("Perspective mode", selection: $model.perspectiveMode) {
+                    ForEach(PerspectiveMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Text(model.perspectiveMode.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Picker("Activation", selection: $model.mode) {
                 ForEach(Mode.allCases) { Text($0.title).tag($0) }
             }
             Picker("Auto sensitivity", selection: $model.sensitivity) {
