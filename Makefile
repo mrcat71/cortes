@@ -9,7 +9,7 @@ build:
 	xcodebuild -project Cortes.xcodeproj -scheme Cortes -configuration Debug -derivedDataPath build/DerivedData build -quiet
 	@if security find-certificate -c "$(IDENTITY)" >/dev/null 2>&1; then \
 		for lib in "$(APP)"/Contents/MacOS/*.dylib; do codesign --force --sign "$(IDENTITY)" "$$lib" || exit 1; done; \
-		codesign --force --sign "$(IDENTITY)" "$(APP)" && echo "signed with $(IDENTITY)"; \
+		codesign --force --entitlements App/Cortes.entitlements --sign "$(IDENTITY)" "$(APP)" && echo "signed with $(IDENTITY)"; \
 	else \
 		echo "warning: no '$(IDENTITY)' identity, so the build stays ad-hoc signed and loses Accessibility on every rebuild (run: make signing-identity)"; \
 	fi

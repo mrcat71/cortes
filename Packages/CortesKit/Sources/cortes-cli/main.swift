@@ -1,5 +1,7 @@
+import AVFoundation
 import CortesKit
 import Foundation
+import Synchronization
 
 // Developer CLI:
 //   cortes-cli slack [--raw]                 read the focused Slack conversation (text masked unless --raw)
@@ -7,6 +9,7 @@ import Foundation
 //   cortes-cli ask <scenario> [count]        run the pipeline; picks the backend from the environment:
 //                                            ZAI_API_KEY → z.ai, OLLAMA_URL/OLLAMA_MODEL → local Ollama,
 //                                            otherwise the offline replay backend
+//   cortes-cli speech-file <path> [locale]   transcribe a short local audio fixture, never capture live audio
 
 func mask(_ text: String) -> String {
     String(text.map { $0.isLetter ? ($0.isUppercase ? "X" : "x") : ($0.isNumber ? "9" : $0) })
@@ -63,6 +66,31 @@ case "prompt":
     print("---")
     print(PromptBuilder.user(chat: chat, mode: "manual"))
 
+case "speech-file":
+    guard #available(macOS 26, *) else { fail("On-device transcription requires macOS 26 or later.") }
+    guard let path = args.dropFirst().first else { fail("speech-file requires a local audio file path") }
+    let locale = args.dropFirst(2).first ?? "en-US"
+    do {
+        let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
+        guard file.length > 0, Double(file.length) / file.processingFormat.sampleRate <= 30 else {
+            fail("Use a nonempty audio fixture of at most 30 seconds.")
+        }
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)) else {
+            fail("Cannot allocate the fixture audio buffer.")
+        }
+        try file.read(into: buffer)
+        let errors = Mutex<[String]>([])
+        let recognizer = try await OnDeviceSpeech.start(
+            locale: Locale(identifier: locale), onText: { print($0) },
+            onError: { message in errors.withLock { $0.append(message) } },
+            onStatus: { FileHandle.standardError.write(Data(($0 + "\n").utf8)) })
+        defer { recognizer.stop() }
+        recognizer.input.append(buffer)
+        try await recognizer.finishAndDrain()
+        let failures = errors.withLock { $0 }
+        if !failures.isEmpty { fail(failures.joined(separator: "; ")) }
+    } catch { fail("Transcription failed: " + error.localizedDescription) }
+
 case "ask":
     let s = scenario(args.dropFirst().first)
     let count = args.dropFirst(2).first.flatMap(Int.init) ?? s.lines.count
@@ -99,5 +127,5 @@ case "ask":
     }
 
 default:
-    fail("usage: cortes-cli slack [--raw] | prompt <scenario> [count] | ask <scenario> [count]")
+    fail("usage: cortes-cli slack [--raw] | prompt <scenario> [count] | ask <scenario> [count] | speech-file <path> [locale]")
 }

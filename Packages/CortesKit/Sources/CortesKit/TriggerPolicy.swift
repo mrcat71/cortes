@@ -62,7 +62,7 @@ public enum TriggerPolicy {
         guard let last = snapshot.messages.last, !last.isMe else { return 0 }
         let text = last.text.lowercased()
         var score = 0.0
-        if snapshot.kind == .dm || mentionsMe(text, myName: snapshot.myName) { score += 0.4 }
+        if snapshot.kind == .dm || snapshot.kind == .call || mentionsMe(text, myName: snapshot.myName) { score += 0.4 }
         if text.contains("?") || interrogativeOpeners.contains(where: { text.hasPrefix($0) }) { score += 0.25 }
         if tensionWords.contains(where: text.contains) || last.text.contains("!!") || DecisionEngine.hasCapsRun(last.text) {
             score += 0.2

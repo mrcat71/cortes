@@ -35,12 +35,16 @@ struct MenuContent: View {
 
     var body: some View {
         Text(model.captureStatus)
+        if model.callActive || model.callStarting {
+            Label(model.callStatus, systemImage: "record.circle.fill")
+            Button("Stop listening and clear transcript", role: .destructive) { model.stopCall() }
+        }
         Divider()
         Button("Ask the voices  ⌃⌥V") { model.hotKeyPressed() }
         Picker("Mode", selection: $model.mode) {
             ForEach(Mode.allCases) { Text($0.title).tag($0) }
         }
-        if let key = model.current?.key, key.app != "demo" {
+        if let key = model.current?.key, key.app != "demo", model.current?.kind != .call {
             Toggle(
                 model.engine == .cloud ? "Allow cloud analysis: \(key.title)" : "Allow analysis: \(key.title)",
                 isOn: Binding(get: { model.isAllowed(key) }, set: { model.setAllowed(key, $0) }))

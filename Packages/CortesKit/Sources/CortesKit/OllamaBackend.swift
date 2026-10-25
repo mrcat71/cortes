@@ -28,12 +28,53 @@ public struct OllamaConfig: Sendable {
 public struct OllamaBackend: LLMBackend {
     public let config: OllamaConfig
     private let session: URLSession
+    private let requiresLocalModel: Bool
     private static let log = Logger(subsystem: "io.github.mrcat71.cortes", category: "ollama")
 
     public init(config: OllamaConfig = OllamaConfig(), session: URLSession = .shared) {
+        self.init(config: config, session: session, requiresLocalModel: false)
+    }
+
+    init(config: OllamaConfig, session: URLSession, requiresLocalModel: Bool) {
         self.config = config
         self.session = session
+        self.requiresLocalModel = requiresLocalModel
     }
+
+    /// Call transcripts must never follow a redirect off this Mac, even from a local model server.
+    public static func localOnly(config: OllamaConfig) throws -> OllamaBackend {
+        guard CapturePrivacy.isLoopback(config.baseURL) else {
+            throw LLMError.unavailable("Call analysis requires a loopback Ollama URL.")
+        }
+        return OllamaBackend(config: config, session: localSession, requiresLocalModel: true)
+    }
+
+    /// Check metadata without sending conversation content. Local aliases can point to cloud models.
+    public func verifyLocalModel() async throws {
+        try Task.checkCancellation()
+        var request = URLRequest(url: try endpoint("api/show"), timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": config.model])
+        let (data, response) = try await send { try await session.data(for: request) }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard status == 200 else { throw describe(status: status, message: ZAIBackend.errorMessage(from: data)) }
+        guard let metadata = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              ["remote_model", "remote_host"].allSatisfy({ key in
+                  metadata[key] == nil || (metadata[key] as? String) == ""
+              }),
+              let info = metadata["model_info"] as? [String: Any], !info.isEmpty
+        else {
+            throw LLMError.unavailable("Call analysis requires a downloaded local model, not an Ollama cloud model.")
+        }
+        try Task.checkCancellation()
+    }
+
+    private static let localSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        return URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
+    }()
 
     public var origin: LLMOrigin { .local }
     public var modelName: String { config.model }
@@ -42,6 +83,7 @@ public struct OllamaBackend: LLMBackend {
         system: String, turns: [ChatTurn], temperature: Double, maxTokens: Int, schema: Data?
     ) async throws -> LLMResult {
         let started = Date()
+        if requiresLocalModel { try await verifyLocalModel() }
         var sendThink = true
         var activeSchema = schema
         while true {
@@ -81,6 +123,7 @@ public struct OllamaBackend: LLMBackend {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    if requiresLocalModel { try await verifyLocalModel() }
                     var sendThink = true
                     var activeSchema = schema
                     while true {
@@ -224,5 +267,14 @@ public struct OllamaBackend: LLMBackend {
         }
         Self.log.error("Ollama HTTP \(status): \(message, privacy: .public)")
         return .http(status, message)
+    }
+}
+
+final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }

@@ -131,7 +131,7 @@ public struct SuggestionEngine: Sendable {
             if budget < 0 && !kept.isEmpty { break }
             kept.insert(cleaned, at: 0)
         }
-        let others = kept.filter { !$0.isMe }.map(\.author)
+        let others = (snapshot.kind == .context || snapshot.kind == .call) ? [] : kept.filter { !$0.isMe }.map(\.author)
         let pseudonymizer = pseudonymize ? Pseudonymizer(names: others, myName: snapshot.myName) : nil
         let messages = kept.enumerated().map { index, message in
             PreparedMessage(

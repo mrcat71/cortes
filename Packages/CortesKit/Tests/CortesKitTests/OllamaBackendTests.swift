@@ -8,6 +8,38 @@ import Testing
     private let schema = Data(#"{"type":"object"}"#.utf8)
     private let unavailable = #"{"error":"structured output is unavailable"}"#
 
+    @Test(arguments: [false, true])
+    func callsCheckLocalMetadataBeforeSendingContent(streaming: Bool) async throws {
+        let fixture = OllamaFixture(responses: [
+            (200, #"{"model_info":{"general.architecture":"gemma"}}"#), success(streaming: streaming),
+        ])
+        defer { fixture.close() }
+        #expect(try await complete(fixture.localBackend, streaming: streaming) == "ok")
+        #expect(fixture.requests.count == 2)
+        #expect(fixture.requests.first?.count == 1)
+        #expect(fixture.requests.first?["model"] as? String == "test-model")
+        #expect(fixture.requests.last?["messages"] != nil)
+    }
+
+    @Test(arguments: [false, true])
+    func callsRejectRemoteOrUnverifiableModelsWithoutSendingContent(streaming: Bool) async throws {
+        for metadata in [
+            #"{"remote_model":"cloud-model","model_info":{"general.architecture":"gemma"}}"#,
+            #"{"remote_host":"https://ollama.com","model_info":{}}"#,
+            #"{"remote_model":true,"model_info":{"general.architecture":"gemma"}}"#,
+            #"{"model_info":{}}"#, #"{}"#, "not JSON",
+        ] {
+            let fixture = OllamaFixture(responses: [(200, metadata)])
+            defer { fixture.close() }
+            await #expect(throws: (any Error).self) {
+                try await complete(fixture.localBackend, streaming: streaming)
+            }
+            #expect(fixture.requests.count == 1)
+            #expect(fixture.requests.first?.count == 1)
+            #expect(fixture.requests.first?["messages"] == nil)
+        }
+    }
+
     @Test func extractsNativeOllamaErrors() {
         #expect(ZAIBackend.errorMessage(from: Data(unavailable.utf8)) == "structured output is unavailable")
         #expect(ZAIBackend.errorMessage(from: Data(#"{"error":{"message":"cloud error"}}"#.utf8)) == "cloud error")
@@ -184,6 +216,11 @@ private struct OllamaFixture {
     let stops: AsyncStream<Void>
     var backend: OllamaBackend {
         OllamaBackend(config: OllamaConfig(baseURL: "http://\(host)", model: "test-model"), session: session)
+    }
+    var localBackend: OllamaBackend {
+        OllamaBackend(
+            config: OllamaConfig(baseURL: "http://\(host)", model: "test-model"), session: session,
+            requiresLocalModel: true)
     }
     var requests: [[String: Any]] {
         OllamaStub.states.withLock { $0[host]?.requests ?? [] }.compactMap {
