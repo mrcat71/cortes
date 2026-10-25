@@ -105,6 +105,10 @@ public enum PromptBuilder {
         let people = others.map(\.from).filter { seen.insert($0).inserted }
         var lines: [String] = []
         switch chat.kind {
+        case .context:
+            return "This is unstructured application text, not a parsed chat. Speaker identities and authorship are unknown. Do not assume who wrote it or invent participants. Offer context-aware wording only. Mode: \(mode)."
+        case .call:
+            lines.append("This is a live spoken call transcript. ME is the microphone track. Call participants is the app audio track and may contain several people; do not invent their names or distinguish speakers. Suggest what ME could SAY next, not a chat message.")
         case .dm:
             lines.append("This is a direct message between ME and \(people.first ?? "another person").")
         case .channel:

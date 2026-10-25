@@ -54,6 +54,11 @@ struct OverlayView: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
+            if model.callActive {
+                Badge(text: "LISTENING", color: .red)
+                Button { model.stopCall() } label: { Image(systemName: "stop.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(.red).help("Stop listening and clear transcript")
+            }
             if model.stale {
                 Badge(text: "outdated", color: .orange)
             }

@@ -77,7 +77,7 @@ enum OverlayPhase {
 
 @Observable
 final class AppModel {
-    static let bundleID = "io.github.mrcat71.cortes"
+    static let bundleID = Bundle.main.bundleIdentifier ?? "io.github.mrcat71.cortes"
     static let keychainAccount = "zai-api-key"
     static let demoWindowTitle = "Demo Chat"
     static let demoWindowID = "demo-chat"
@@ -111,15 +111,43 @@ final class AppModel {
     var disableThinking: Bool { didSet { defaults.set(disableThinking, forKey: "disableThinking") } }
     var pseudonymize: Bool { didSet { defaults.set(pseudonymize, forKey: "pseudonymize") } }
     var engine: Engine { didSet { defaults.set(engine.rawValue, forKey: "engine") } }
-    var ollamaURL: String { didSet { defaults.set(ollamaURL, forKey: "ollamaURL") } }
+    var ollamaURL: String {
+        didSet {
+            defaults.set(ollamaURL, forKey: "ollamaURL")
+            if callSessionID != nil, !CapturePrivacy.isLoopback(ollamaURL) { stopCall() }
+        }
+    }
     var ollamaModel: String { didSet { defaults.set(ollamaModel, forKey: "ollamaModel") } }
+    var enabledTextApps: [String] {
+        didSet {
+            defaults.set(enabledTextApps, forKey: "enabledTextApps")
+            capture?.configure(apps: enabledTextApps, scope: textScope)
+            if let current, current.kind == .context, !enabledTextApps.contains(current.key.app) { leaveConversation() }
+        }
+    }
+    var textScope: AppTextScope {
+        didSet {
+            defaults.set(textScope.rawValue, forKey: "textScope")
+            capture?.configure(apps: enabledTextApps, scope: textScope)
+            if current?.kind == .context { leaveConversation() }
+        }
+    }
+    var callAppID: String { didSet { defaults.set(callAppID, forKey: "callAppID") } }
+    var callLocale: String { didSet { defaults.set(callLocale, forKey: "callLocale") } }
+    var callIncludeMicrophone: Bool { didSet { defaults.set(callIncludeMicrophone, forKey: "callIncludeMicrophone") } }
+    var callAutoGenerate: Bool { didSet { defaults.set(callAutoGenerate, forKey: "callAutoGenerate") } }
     var myNameOverride: String {
         didSet {
             defaults.set(myNameOverride, forKey: "myName")
             capture?.setMyNameOverride(myNameOverride.isEmpty ? nil : myNameOverride)
         }
     }
-    var allowlist: [String] { didSet { defaults.set(allowlist, forKey: "allowlist") } }
+    var allowlist: [String] {
+        didSet {
+            defaults.set(allowlist, forKey: "allowlist")
+            if let current, !isAllowed(current.key) { cancelWork(); hideOverlay() }
+        }
+    }
     private(set) var hasAPIKey = false
 
     // MARK: Runtime state
@@ -134,12 +162,21 @@ final class AppModel {
     var overlayHovered = false
     var demoScenarioID: String { didSet { demoReset() } }
     private(set) var demoVisible = 0
+    private(set) var runningApps: [CaptureApplication] = []
+    private(set) var callActive = false
+    private(set) var callStarting = false
+    private(set) var callStatus = "Not listening"
+    private(set) var callUtteranceCount = 0
 
     private(set) var voices: [VoiceDefinition]
     let scenarios: [Scenario]
 
     @ObservationIgnored private var overlay: OverlayController?
-    @ObservationIgnored private var capture: SlackAXSource?
+    @ObservationIgnored private var capture: TextCaptureSource?
+    @ObservationIgnored private var callCapture: (any VoiceCaptureSession)?
+    @ObservationIgnored private var callStartTask: Task<Void, Never>?
+    @ObservationIgnored private var callSessionID: UUID?
+    @ObservationIgnored private var callTranscript: CallTranscript?
     @ObservationIgnored private var hotKey: GlobalHotKey?
     @ObservationIgnored private var inflight: Task<Void, Never>?
     @ObservationIgnored private var debounce: Task<Void, Never>?
@@ -152,6 +189,8 @@ final class AppModel {
     @ObservationIgnored private var recentTop: [String] = []
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var screenLocked = false
+    @ObservationIgnored private var sleeping = false
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -168,6 +207,12 @@ final class AppModel {
             ?? (defaults.bool(forKey: "useReplay") ? .replay : .local)
         ollamaURL = defaults.string(forKey: "ollamaURL") ?? OllamaConfig.defaultURL
         ollamaModel = defaults.string(forKey: "ollamaModel") ?? OllamaConfig.defaultModel
+        enabledTextApps = defaults.stringArray(forKey: "enabledTextApps") ?? []
+        textScope = AppTextScope(rawValue: defaults.string(forKey: "textScope") ?? "") ?? .selection
+        callAppID = defaults.string(forKey: "callAppID") ?? ""
+        callLocale = defaults.string(forKey: "callLocale") ?? "en-US"
+        callIncludeMicrophone = defaults.bool(forKey: "callIncludeMicrophone")
+        callAutoGenerate = defaults.object(forKey: "callAutoGenerate") as? Bool ?? true
         myNameOverride = defaults.string(forKey: "myName") ?? ""
         allowlist = defaults.stringArray(forKey: "allowlist") ?? []
         voices = VoiceRegistry.load(mode: perspectiveMode)
@@ -184,11 +229,12 @@ final class AppModel {
             self?.hotKeyPressed()
         }
         if hotKey == nil { log.error("Couldn't register the ⌃⌥V hotkey") }
-        let source = SlackAXSource { [weak self] event in
+        let source = TextCaptureSource { [weak self] event in
             Task { @MainActor in self?.handle(event) }
         }
         source.setMyNameOverride(myNameOverride.isEmpty ? nil : myNameOverride)
         source.setMyNameFallback(defaults.string(forKey: "detectedSlackName"))
+        source.configure(apps: enabledTextApps, scope: textScope)
         capture = source
         observeSystem()
         if !axTrusted { pollTrust() }
@@ -217,6 +263,7 @@ final class AppModel {
 
     var menuBarSymbol: String {
         if mode == .paused { return "moon.zzz" }
+        if callActive || callStarting { return "waveform.circle.fill" }
         if !axTrusted { return "exclamationmark.triangle" }
         switch phase {
         case .thinking, .streaming: return "ellipsis.bubble"
@@ -231,7 +278,8 @@ final class AppModel {
     }
 
     func isAllowed(_ key: ConversationKey) -> Bool {
-        key.app == "demo" || allowlist.contains(key.id)
+        if key.app == "demo" || key == callTranscript?.key { return true }
+        return (key.app == "slack" || enabledTextApps.contains(key.app)) && allowlist.contains(key.id)
     }
 
     func setAllowed(_ key: ConversationKey, _ allowed: Bool) {
@@ -250,17 +298,17 @@ final class AppModel {
 
     private func applyMode() {
         guard started else { return }
-        if mode == .paused {
+        if mode == .paused || screenLocked || sleeping {
             capture?.stop()
             wipe()
-            captureStatus = "Paused"
-        } else {
+            captureStatus = mode == .paused ? "Paused" : "Capture suspended"
+        } else if callSessionID == nil {
             capture?.start()
         }
     }
 
     private func handle(_ event: CaptureEvent) {
-        guard mode != .paused else { return }
+        guard mode != .paused, !screenLocked, !sleeping, callSessionID == nil else { return }
         switch event {
         case .notTrusted:
             if axTrusted { log.notice("Accessibility trust lost") }
@@ -268,12 +316,13 @@ final class AppModel {
             captureStatus = "Accessibility permission needed"
         case .inactive(let reason):
             captureStatus = reason
-            if current?.key.app == "slack" { leaveConversation() }
+            if current?.key.app != "demo" { leaveConversation() }
         case .failed(let message):
             captureStatus = message
-            if current?.key.app == "slack" { leaveConversation() }
+            if current?.key.app != "demo" { leaveConversation() }
         case .snapshot(let snapshot):
-            if !axTrusted { log.notice("Accessibility trusted; reading Slack") }
+            guard CapturePrivacy.allowsTextContext(snapshot, apps: enabledTextApps, scope: textScope) else { return }
+            if !axTrusted { log.notice("Accessibility trusted; reading application text") }
             axTrusted = true
             if myNameOverride.isEmpty, let name = snapshot.myName, name != defaults.string(forKey: "detectedSlackName") {
                 defaults.set(name, forKey: "detectedSlackName")
@@ -300,7 +349,7 @@ final class AppModel {
             stale = result.revision != snapshot.revision
         }
         if phase.isVisible { overlay?.update(anchor: snapshot.anchorFrame) }
-        if mode == .auto { scheduleAuto() }
+        if automaticGenerationEnabled { scheduleAuto() }
     }
 
     private func leaveConversation() {
@@ -310,6 +359,7 @@ final class AppModel {
     }
 
     private func wipe() {
+        stopCall(resumeTextCapture: false)
         current = nil
         firedRevisions.removeAll()
         lastFire.removeAll()
@@ -319,6 +369,10 @@ final class AppModel {
     }
 
     // MARK: Triggers
+
+    private var automaticGenerationEnabled: Bool {
+        mode != .paused && !screenLocked && !sleeping && (callSessionID != nil ? callAutoGenerate : mode == .auto)
+    }
 
     private func scheduleAuto() {
         debounce?.cancel()
@@ -330,10 +384,12 @@ final class AppModel {
     }
 
     private func autoFire() {
-        guard mode == .auto, let snapshot = current, isAllowed(snapshot.key), !overlayHovered else { return }
+        guard automaticGenerationEnabled, let snapshot = current, isAllowed(snapshot.key), !overlayHovered,
+              inflight == nil else { return }
         guard let last = snapshot.messages.last, !last.isMe else { return }
         guard !firedRevisions.contains(snapshot.key.id + "#" + snapshot.revision) else { return }
         let now = Date()
+        let sensitivity = snapshot.kind == .call ? Sensitivity.every : self.sensitivity
         guard now.timeIntervalSince(lastFire[snapshot.key.id] ?? .distantPast) > sensitivity.conversationCooldown,
               now.timeIntervalSince(lastGlobalFire) > sensitivity.globalCooldown
         else { return }
@@ -342,10 +398,15 @@ final class AppModel {
     }
 
     func hotKeyPressed() {
-        guard mode != .paused else {
-            captureStatus = "Paused"
+        guard mode != .paused, !screenLocked, !sleeping else {
+            captureStatus = mode == .paused ? "Paused" : "Capture suspended"
             return
         }
+        if callActive {
+            if let current, !current.messages.isEmpty { run(current, manual: true) }
+            return
+        }
+        if callStarting { return }
         if NSApp.isActive, NSApp.keyWindow?.title == Self.demoWindowTitle {
             demoAsk()
             return
@@ -360,7 +421,7 @@ final class AppModel {
                 self.handle(event)
                 switch event {
                 case .snapshot(let snapshot): self.run(snapshot, manual: true)
-                case .notTrusted: self.showFailure("Cortes needs Accessibility permission to read Slack.")
+                case .notTrusted: self.showFailure("Cortes needs Accessibility permission to read application text.")
                 case .failed(let message), .inactive(let message): self.showFailure(message)
                 }
             }
@@ -370,7 +431,13 @@ final class AppModel {
     // MARK: Generation
 
     func run(_ snapshot: ConversationSnapshot, manual: Bool) {
+        guard callSessionID == nil || snapshot.kind == .call else { return }
         cancelWork()
+        guard mode != .paused, !screenLocked, !sleeping else { return }
+        guard CapturePrivacy.allowsTextContext(snapshot, apps: enabledTextApps, scope: textScope) else {
+            showFailure("This app or text capture scope is no longer enabled.")
+            return
+        }
         guard isAllowed(snapshot.key) else {
             if manual {
                 phase = .consent(snapshot)
@@ -379,18 +446,31 @@ final class AppModel {
             return
         }
         let backend: any LLMBackend
-        switch engine {
-        case .replay:
-            backend = ReplayBackend(perspectiveMode: perspectiveMode)
-        case .local:
-            backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
-        case .cloud:
-            guard let key = apiKey() else {
-                showFailure(LLMError.missingKey.localizedDescription, anchor: snapshot.anchorFrame)
+        if snapshot.kind == .call {
+            guard callActive, snapshot.key == callTranscript?.key, CapturePrivacy.isLoopback(ollamaURL) else {
+                showFailure("Call analysis requires an active session and a loopback Ollama URL.")
                 return
             }
-            backend = ZAIBackend(config: ZAIConfig(
-                baseURL: baseURL, model: modelName, apiKey: key, disableThinking: disableThinking))
+            do {
+                backend = try OllamaBackend.localOnly(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
+            } catch {
+                showFailure(error.localizedDescription)
+                return
+            }
+        } else {
+            switch engine {
+            case .replay:
+                backend = ReplayBackend(perspectiveMode: perspectiveMode)
+            case .local:
+                backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
+            case .cloud:
+                guard let key = apiKey() else {
+                    showFailure(LLMError.missingKey.localizedDescription, anchor: snapshot.anchorFrame)
+                    return
+                }
+                backend = ZAIBackend(config: ZAIConfig(
+                    baseURL: baseURL, model: modelName, apiKey: key, disableThinking: disableThinking))
+            }
         }
         firedRevisions.insert(snapshot.key.id + "#" + snapshot.revision)
         lastFire[snapshot.key.id] = Date()
@@ -409,11 +489,15 @@ final class AppModel {
                     await self?.showProgress(batch, snapshot: snapshot)
                 }
                 guard !Task.isCancelled, let self else { return }
+                self.inflight = nil
                 self.finish(result, auto: !manual)
+                self.schedulePendingAuto(after: snapshot)
             } catch {
                 guard !Task.isCancelled, let self else { return }
+                self.inflight = nil
                 self.log.error("Generation failed: \(error.localizedDescription, privacy: .public)")
                 self.phase = .failure(error.localizedDescription)
+                self.schedulePendingAuto(after: snapshot)
             }
         }
     }
@@ -424,8 +508,117 @@ final class AppModel {
         phase = batch.map(OverlayPhase.streaming) ?? .thinking(snapshot.key)
     }
 
+    private func schedulePendingAuto(after snapshot: ConversationSnapshot) {
+        if automaticGenerationEnabled, let current, current.key == snapshot.key, current.revision != snapshot.revision {
+            scheduleAuto()
+        }
+    }
+
+    // MARK: Additional applications and audio-only calls
+
+    func refreshRunningApps() {
+        runningApps = NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy == .regular, let id = app.bundleIdentifier, id != Self.bundleID else {
+                return nil
+            }
+            return CaptureApplication(id: id, name: app.localizedName ?? id)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func startCall() {
+        guard callSessionID == nil, mode != .paused, !screenLocked, !sleeping else { return }
+        guard #available(macOS 26, *) else { callStatus = "Voice calls require macOS 26 or later."; return }
+        guard CapturePrivacy.isLoopback(ollamaURL) else {
+            callStatus = "Use a loopback Ollama URL for private call analysis."; return
+        }
+        refreshRunningApps()
+        guard let app = runningApps.first(where: { $0.id == callAppID }) else {
+            callStatus = "Select the app hosting your call."; return
+        }
+        cancelWork()
+        hideOverlay()
+        capture?.stop()
+        let id = UUID()
+        callSessionID = id
+        callTranscript = CallTranscript(sessionID: id, appName: app.name)
+        current = callTranscript?.snapshot
+        callUtteranceCount = 0
+        callStarting = true
+        callStatus = "Checking the local voice model…"
+        let session = VoiceCallCapture()
+        callCapture = session
+        let locale = Locale(identifier: callLocale)
+        let includeMicrophone = callIncludeMicrophone
+        let modelConfig = OllamaConfig(baseURL: ollamaURL, model: ollamaModel)
+        callStartTask = Task { [weak self] in
+            do {
+                try await OllamaBackend.localOnly(config: modelConfig).verifyLocalModel()
+                try Task.checkCancellation()
+                try await session.start(
+                    bundleID: app.id, locale: locale, includeMicrophone: includeMicrophone,
+                    onText: { [weak self] text, isMe in
+                        Task { @MainActor in self?.receiveCallText(text, isMe: isMe, sessionID: id) }
+                    },
+                    onError: { [weak self] message in
+                        Task { @MainActor in
+                            guard let self, self.callSessionID == id else { return }
+                            self.stopCall()
+                            self.callStatus = "Listening stopped: " + message
+                        }
+                    }, onStatus: { [weak self] message in
+                        Task { @MainActor in
+                            guard let self, self.callSessionID == id, self.callStarting else { return }
+                            self.callStatus = message
+                        }
+                    })
+                try Task.checkCancellation()
+                guard let self, self.callSessionID == id else { session.stop(); return }
+                self.callStarting = false
+                self.callActive = true
+                self.callStatus =
+                    "Listening to \(app.name)\(includeMicrophone ? " and microphone" : "") · audio only · local"
+                self.callStartTask = nil
+            } catch {
+                session.stop()
+                guard let self, self.callSessionID == id else { return }
+                self.stopCall()
+                self.callStatus = "Listening stopped: " + error.localizedDescription
+            }
+        }
+    }
+
+    private func receiveCallText(_ text: String, isMe: Bool, sessionID: UUID) {
+        guard callActive, callSessionID == sessionID else { return }
+        callTranscript?.append(text, isMe: isMe)
+        callUtteranceCount = callTranscript?.messages.count ?? 0
+        if let snapshot = callTranscript?.snapshot { ingest(snapshot) }
+    }
+
+    func stopCall(resumeTextCapture: Bool = true) {
+        let wasListening = callSessionID != nil
+        callSessionID = nil
+        callStartTask?.cancel()
+        callStartTask = nil
+        callCapture?.stop()
+        callCapture = nil
+        callActive = false
+        callStarting = false
+        callTranscript = nil
+        callUtteranceCount = 0
+        if wasListening {
+            cancelWork()
+            hideOverlay()
+            current = nil
+            firedRevisions = firedRevisions.filter { !$0.hasPrefix("call:") }
+            lastFire = lastFire.filter { !$0.key.hasPrefix("call:") }
+            recentTop.removeAll()
+            callStatus = "Not listening; transcript cleared"
+            if resumeTextCapture, mode != .paused, !screenLocked, !sleeping { capture?.start() }
+        }
+    }
+
     private func finish(_ result: SuggestionResult, auto: Bool) {
-        if let current, current.key != result.key { return } // the user moved on: drop it
+        if let current, current.key != result.key { return }  // the user moved on: drop it
         stale = current.map { $0.revision != result.revision } ?? false
         phase = .result(result)
         if let top = result.verdict.recommended { recentTop = Array((recentTop + [top]).suffix(2)) }
@@ -572,14 +765,26 @@ final class AppModel {
     }
 
     private func observeSystem() {
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.stopCall(resumeTextCapture: false) } })
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.wipe() }
+            MainActor.assumeIsolated { self?.sleeping = true; self?.applyMode() }
+        })
+        observers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sleeping = false; self?.applyMode() }
         })
         observers.append(DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.wipe() }
+            MainActor.assumeIsolated { self?.screenLocked = true; self?.applyMode() }
+        })
+        // Only text capture resumes after wake/unlock. Audio sessions always require a new Start.
+        observers.append(DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.screenLocked = false; self?.applyMode() }
         })
         // Demo suggestions belong to the Demo Chat window; don't leave them floating over other apps.
         observers.append(NotificationCenter.default.addObserver(

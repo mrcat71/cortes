@@ -4,6 +4,8 @@ import Foundation
 public enum ChatKind: String, Sendable, Codable {
     case channel
     case dm
+    case context
+    case call
 }
 
 public struct ConversationKey: Hashable, Sendable, Codable {
@@ -43,6 +45,8 @@ public struct ConversationSnapshot: Sendable {
     /// Area the overlay docks against, in AppKit global coordinates (bottom-left origin).
     public var anchorFrame: CGRect?
     public var capturedAt: Date
+    /// Generic app text is valid only while this capture scope remains enabled.
+    public var textScope: AppTextScope?
 
     public init(
         key: ConversationKey,
@@ -50,7 +54,7 @@ public struct ConversationSnapshot: Sendable {
         messages: [ChatMessage],
         myName: String?,
         anchorFrame: CGRect?,
-        capturedAt: Date = Date()
+        capturedAt: Date = Date(), textScope: AppTextScope? = nil
     ) {
         self.key = key
         self.kind = kind
@@ -58,6 +62,7 @@ public struct ConversationSnapshot: Sendable {
         self.myName = myName
         self.anchorFrame = anchorFrame
         self.capturedAt = capturedAt
+        self.textScope = textScope
     }
 
     /// Changes when the tail of the conversation changes. Scrolling older history doesn't bump it.

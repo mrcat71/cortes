@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Cortes transcribes audio from your selected call app on-device. No video or recording files are captured.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Cortes optionally transcribes your microphone on-device during an explicitly started call session.</string>
+</dict>
+</plist>
