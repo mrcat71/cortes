@@ -54,8 +54,27 @@ private struct GeneralSettings: View {
                     Button("Grant…") { model.requestAccessibility() }
                 }
             }
+            UpdateSettings()
         }
         .formStyle(.grouped)
+    }
+}
+
+struct UpdateSettings: View {
+    @Bindable private var updater = AppUpdater.shared
+
+    var body: some View {
+        Section("Updates") {
+            if let problem = updater.problem {
+                Text(problem).font(.caption).foregroundStyle(.secondary)
+            } else {
+                Toggle("Check for updates automatically", isOn: $updater.automaticallyChecksForUpdates)
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+                Text("Updates are downloaded only when you choose to install them.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -232,12 +251,14 @@ private struct ModelSettings: View {
                         Text(verbatim: message).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+            #if DEBUG
             case .replay:
                 Section("Offline") {
                     Text("Replays a canned answer with no network or model. Last-resort demo fallback.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            #endif
             }
         }
         .formStyle(.grouped)
@@ -251,7 +272,7 @@ private struct PrivacySettings: View {
         Form {
             Section {
                 Text(model.engine == .cloud
-                    ? "The voices run on z.ai's cloud. Only conversations on this list are ever sent; the Demo Chat is always allowed. Nothing is stored: conversation state lives in memory and is wiped on pause, sleep and screen lock."
+                    ? "The voices run on z.ai's cloud. Only allowed conversations are sent. Nothing is stored: conversation state lives in memory and is wiped on pause, sleep and screen lock."
                     : "The voices run locally through Ollama, so nothing ever leaves this Mac. The list below still decides which conversations Cortes reads. Conversation state lives in memory and is wiped on pause, sleep and screen lock.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)

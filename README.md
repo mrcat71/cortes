@@ -20,6 +20,24 @@ call assistance can suggest what to say next from an on-device transcript.
 
 ## Run it
 
+### Release builds and updates
+
+Tagged releases contain the production app only: no Demo Chat, scripted conversations, or Replay
+backend. Download the Apple Silicon ZIP from [GitHub Releases](https://github.com/mrcat71/cortes/releases),
+extract `Cortes.app`, and move it to `/Applications`. Releases become available after the tag workflow
+has completed; adding this workflow does not itself publish a release.
+
+The app uses Sparkle to check for updates through the latest release's signed `appcast.xml`.
+Use **Check for Updates…** in the menu bar, or **Settings → General → Updates** to control automatic
+checks. Installation requires your confirmation. Both the feed and the downloaded archive must verify
+against the app's Ed25519 public key before extraction. A build without a configured public key shows
+why updates are unavailable in Settings instead of accepting unsigned updates.
+Update checks contact GitHub for release metadata; they never include conversation context or audio.
+
+The app is ad-hoc signed, not Developer ID signed or notarized. macOS may block the first launch;
+only approve a download you trust in **System Settings → Privacy & Security**. Accessibility grants
+may need to be renewed after an update because the ad-hoc code signature changes.
+
 ### Requirements
 
 - An Apple Silicon Mac with macOS 15 or later. The development setup uses Xcode 27 and Swift 6.4;
@@ -34,6 +52,9 @@ call assistance can suggest what to say next from an on-device transcript.
   permission is needed only if you include your own voice.
 
 ### First useful result, without Slack
+
+This section uses a **development build**. `make demo` and `make build` retain Demo Chat and Replay;
+they are never included in the release ZIP.
 
 Start the Ollama app, or run `ollama serve` in a separate terminal, then:
 
@@ -217,8 +238,9 @@ For a synthetic business-mode prompt or pipeline check, append `--business` to t
   It is not needed for the local demo. In **Settings → Model**, choose **z.ai cloud**, save a compatible
   API key to Keychain, and test the connection. `ZAI_API_KEY` in the app's environment overrides Keychain.
   A Coding Plan key is not interchangeable with a general API key; check your plan's permitted uses.
-- **Cortes source code:** [Apache-2.0](LICENSE). The app uses Apple's frameworks and has no external
-  Swift package dependencies in [Package.swift](Packages/CortesKit/Package.swift).
+- **Cortes source code:** [Apache-2.0](LICENSE). CortesKit uses Apple's frameworks and has no external
+  Swift package dependencies in [Package.swift](Packages/CortesKit/Package.swift). The macOS app
+  separately links [Sparkle](https://sparkle-project.org) for signed in-app updates.
 
 ## What the extra layer demonstrably adds
 
@@ -319,6 +341,7 @@ Before submission:
 ```sh
 make build
 make test
+make package VERSION=0.1.0
 cd Packages/CortesKit
 swift run cortes-cli prompt launch-war-room 5
 env -u ZAI_API_KEY OLLAMA_MODEL=gemma4:12b swift run cortes-cli ask launch-war-room 5
@@ -338,17 +361,67 @@ public demos or shared logs.
 App/                    SwiftUI menu bar app, overlay, settings and Demo Chat
 Packages/CortesKit/      Capture, prompts, backends, validation, risk rules, voices and tests
 docs/poc-results.md      Recorded proof-of-concept checks and remaining manual checks
+scripts/                Release packaging and signed update-feed validation
 ```
+
+### CI and tag releases
+
+[`ci.yml`](.github/workflows/ci.yml) runs the package tests and builds a demo-free Apple Silicon
+release ZIP on pull requests to `main`, pushes to `main` and `renovate/**`, and manual runs. It
+uploads the ZIP and `SHA256SUMS` as run artifacts. Tests still exercise the development demo fixtures.
+
+[`release.yml`](.github/workflows/release.yml) repeats the tests and packaging on every `vX.Y.Z`
+tag push, signs and verifies the Sparkle feed, then publishes the ZIP, `appcast.xml`, and `SHA256SUMS`
+to GitHub Releases. The tag supplies both bundle version fields, so Sparkle compares release versions
+rather than CI run numbers. Only stable tags are supported. A manual run is build-only, never publishes,
+and skips feed signing if the secret has not been configured.
+When the public key is configured, both workflows also run the packaged app's `--self-test` to prove
+Sparkle loads and starts with that bundle's update configuration, without starting capture or Ollama.
+
+One-time repository configuration:
+
+- Set the Actions variable `MACOS_RUNNER` to an approved Apple Silicon Mac runner label with Xcode 27.
+  GitHub-hosted `xcode-27` is one option. Do not put untrusted public PRs on a privileged self-hosted Mac.
+- Generate a dedicated update key with the `generate_keys` tool resolved by the first `make package`.
+  It keeps the private key in your login Keychain under account `cortes` and prints the public key:
+
+  ```sh
+  build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys --account cortes
+  ```
+
+- Store that public key in the Actions variable `SPARKLE_PUBLIC_KEY`. Pass the same value as
+  `SPARKLE_PUBLIC_KEY=...` to local `make build` or `make package` commands that need working updates.
+- Export the private key to a private temporary file with `generate_keys --account cortes -x <file>`,
+  store its contents in the repository secret `SPARKLE_ED_PRIVATE_KEY`, and delete only the export.
+  Never commit it or print it in logs. Keep a separate secure backup: replacing this key breaks the
+  update chain for installed ad-hoc-signed copies.
+
+Repository variables and secrets are changed through GitHub's **Settings → Secrets and variables →
+Actions**. A missing or mismatched key blocks a tagged release before publication. A signing failure
+never falls back to an unsigned feed.
+
+After committing and pushing these workflows, run CI for the intended commit, then run **release →
+Run workflow** once to verify signing without publishing. To release, create and push a new `vX.Y.Z`
+tag on the checked commit. For example, the following commands create a tag and trigger public release
+publication, respectively:
+
+```sh
+git tag -a v0.1.0 -m "Release 0.1.0"
+git push origin v0.1.0
+```
+
+Do not move a published tag or replace its assets; ship a new patch version. Verify the workflow result,
+all three release assets, `shasum -a 256 -c SHA256SUMS`, and an update from the previous installed
+version. Local checks do not prove that GitHub published the feed or that an installed app upgraded.
 
 ### Dependency updates
 
 [Renovate configuration](.github/renovate.json) follows the personal-project policy: ordinary updates
 wait seven days after release, require a release timestamp, and assign and request review from
 `mrcat71`. Swift minor/patch updates are grouped; major updates stay separate. GitHub Actions updates
-are grouped and pinned to digests. Automerge is disabled. Cortes has no CI workflow, so PRs open after
-the release-age gate without waiting for status checks. Before switching to `prCreation: status-success`,
-add CI that runs on `renovate/**` branch pushes. Security alerts retain Renovate's default release-age
-bypass.
+are grouped and pinned to digests. Automerge is disabled. PRs open after the release-age gate without
+waiting for status checks (`prCreation: immediate`); CI now also runs on `renovate/**` branch pushes.
+Security alerts retain Renovate's default release-age bypass.
 
 Validate configuration changes with `renovate-config-validator --strict --no-global .github/renovate.json`.
 

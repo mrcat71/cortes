@@ -48,7 +48,9 @@ enum EndpointPreset: String, CaseIterable, Identifiable {
 enum Engine: String, CaseIterable, Identifiable {
     case local
     case cloud
+    #if DEBUG
     case replay
+    #endif
 
     var id: String { rawValue }
 
@@ -56,7 +58,9 @@ enum Engine: String, CaseIterable, Identifiable {
         switch self {
         case .local: "Local (Ollama)"
         case .cloud: "z.ai cloud"
+        #if DEBUG
         case .replay: "Replay (offline)"
+        #endif
         }
     }
 }
@@ -79,8 +83,10 @@ enum OverlayPhase {
 final class AppModel {
     static let bundleID = Bundle.main.bundleIdentifier ?? "io.github.mrcat71.cortes"
     static let keychainAccount = "zai-api-key"
+    #if DEBUG
     static let demoWindowTitle = "Demo Chat"
     static let demoWindowID = "demo-chat"
+    #endif
     static let modelSuggestions = ["glm-5.2", "glm-5-turbo", "glm-4.7", "glm-4.5-air", "glm-5.3"]
     static let ollamaModelSuggestions = ["gemma4:12b", "gemma4:26b", "gemma4:e4b", "gemma4:12b-mlx"]
 
@@ -160,8 +166,10 @@ final class AppModel {
     private(set) var connectionTestResult: String?
     var copiedVoiceID: String?
     var overlayHovered = false
+    #if DEBUG
     var demoScenarioID: String { didSet { demoReset() } }
     private(set) var demoVisible = 0
+    #endif
     private(set) var runningApps: [CaptureApplication] = []
     private(set) var callActive = false
     private(set) var callStarting = false
@@ -169,7 +177,9 @@ final class AppModel {
     private(set) var callUtteranceCount = 0
 
     private(set) var voices: [VoiceDefinition]
+    #if DEBUG
     let scenarios: [Scenario]
+    #endif
 
     @ObservationIgnored private var overlay: OverlayController?
     @ObservationIgnored private var capture: TextCaptureSource?
@@ -202,9 +212,13 @@ final class AppModel {
         modelName = defaults.string(forKey: "model") ?? "glm-5.2"
         disableThinking = defaults.object(forKey: "disableThinking") as? Bool ?? true
         pseudonymize = defaults.object(forKey: "pseudonymize") as? Bool ?? true
+        #if DEBUG
         // First migration step from the old replay toggle; afterwards the engine key wins.
         engine = Engine(rawValue: defaults.string(forKey: "engine") ?? "")
             ?? (defaults.bool(forKey: "useReplay") ? .replay : .local)
+        #else
+        engine = Engine(rawValue: defaults.string(forKey: "engine") ?? "") ?? .local
+        #endif
         ollamaURL = defaults.string(forKey: "ollamaURL") ?? OllamaConfig.defaultURL
         ollamaModel = defaults.string(forKey: "ollamaModel") ?? OllamaConfig.defaultModel
         enabledTextApps = defaults.stringArray(forKey: "enabledTextApps") ?? []
@@ -216,8 +230,10 @@ final class AppModel {
         myNameOverride = defaults.string(forKey: "myName") ?? ""
         allowlist = defaults.stringArray(forKey: "allowlist") ?? []
         voices = VoiceRegistry.load(mode: perspectiveMode)
+        #if DEBUG
         scenarios = Scenario.loadBundled()
         demoScenarioID = scenarios.first?.id ?? ""
+        #endif
         hasAPIKey = KeychainStore.read(service: Self.bundleID, account: Self.keychainAccount) != nil
     }
 
@@ -238,7 +254,9 @@ final class AppModel {
         capture = source
         observeSystem()
         if !axTrusted { pollTrust() }
+        #if DEBUG
         demoReset()
+        #endif
         applyMode()
         if engine == .local { warmUpLocalModel() }
     }
@@ -278,7 +296,10 @@ final class AppModel {
     }
 
     func isAllowed(_ key: ConversationKey) -> Bool {
-        if key.app == "demo" || key == callTranscript?.key { return true }
+        #if DEBUG
+        if key.app == "demo" { return true }
+        #endif
+        if key == callTranscript?.key { return true }
         return (key.app == "slack" || enabledTextApps.contains(key.app)) && allowlist.contains(key.id)
     }
 
@@ -407,10 +428,12 @@ final class AppModel {
             return
         }
         if callStarting { return }
+        #if DEBUG
         if NSApp.isActive, NSApp.keyWindow?.title == Self.demoWindowTitle {
             demoAsk()
             return
         }
+        #endif
         if case .result(let result) = phase, !stale, result.key == current?.key {
             hideOverlay() // a second press dismisses fresh suggestions
             return
@@ -459,8 +482,10 @@ final class AppModel {
             }
         } else {
             switch engine {
+            #if DEBUG
             case .replay:
                 backend = ReplayBackend(perspectiveMode: perspectiveMode)
+            #endif
             case .local:
                 backend = OllamaBackend(config: OllamaConfig(baseURL: ollamaURL, model: ollamaModel))
             case .cloud:
@@ -714,8 +739,10 @@ final class AppModel {
 
     func testConnection() async {
         switch engine {
+        #if DEBUG
         case .replay:
             connectionTestResult = "Replay answers from a canned response; no connection needed."
+        #endif
         case .local:
             connectionTestResult = "Checking…"
             connectionTestResult = await OllamaBackend(
@@ -786,6 +813,7 @@ final class AppModel {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.screenLocked = false; self?.applyMode() }
         })
+        #if DEBUG
         // Demo suggestions belong to the Demo Chat window; don't leave them floating over other apps.
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
@@ -796,8 +824,10 @@ final class AppModel {
                 self.hideOverlay()
             }
         })
+        #endif
     }
 
+    #if DEBUG
     // MARK: Demo chat
 
     var demoScenario: Scenario? {
@@ -841,4 +871,5 @@ final class AppModel {
         let frame = NSApp.windows.first { $0.title == Self.demoWindowTitle && $0.isVisible }?.frame
         return demoScenario?.snapshot(visibleCount: demoVisible, anchor: frame)
     }
+    #endif
 }

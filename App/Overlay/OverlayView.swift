@@ -145,6 +145,7 @@ private struct ConsentView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            #if DEBUG
             case .replay:
                 Text("Ask the voices about “\(title)”?")
                     .font(.headline)
@@ -152,6 +153,7 @@ private struct ConsentView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            #endif
             }
             HStack {
                 Button("Allow and ask", action: allow).buttonStyle(.borderedProminent)

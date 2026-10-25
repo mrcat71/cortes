@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C0A7E5000000000000000010 /* CortesKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0A7E5000000000000000011 /* CortesKit */; };
+		C0A7E5000000000000000030 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C0A7E5000000000000000031 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +30,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C0A7E5000000000000000010 /* CortesKit in Frameworks */,
+				C0A7E5000000000000000030 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +75,7 @@
 			name = Cortes;
 			packageProductDependencies = (
 				C0A7E5000000000000000011 /* CortesKit */,
+				C0A7E5000000000000000031 /* Sparkle */,
 			);
 			productName = Cortes;
 			productReference = C0A7E5000000000000000001 /* Cortes.app */;
@@ -104,6 +107,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C0A7E5000000000000000012 /* XCLocalSwiftPackageReference "Packages/CortesKit" */,
+				C0A7E5000000000000000032 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C0A7E5000000000000000005 /* Products */;
@@ -270,11 +274,27 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C0A7E5000000000000000031 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C0A7E5000000000000000032 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		C0A7E5000000000000000011 /* CortesKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CortesKit;
 		};
 /* End XCSwiftPackageProductDependency section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C0A7E5000000000000000032 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 	};
 	rootObject = C0A7E5000000000000000009 /* Project object */;
 }

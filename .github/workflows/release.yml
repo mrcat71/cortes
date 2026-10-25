@@ -1,0 +1,110 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # Manual runs build artifacts only, even when a tag is selected.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: test + package + sign updates
+    runs-on: ${{ vars.MACOS_RUNNER }}
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo '::error::Release tags must have the form vX.Y.Z'
+              exit 1
+            fi
+          else
+            version="0.0.0-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Require update signing for published releases
+        if: github.event_name == 'push'
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$SPARKLE_PUBLIC_KEY" || -z "$SPARKLE_ED_PRIVATE_KEY" ]]; then
+            echo '::error::Configure SPARKLE_PUBLIC_KEY and SPARKLE_ED_PRIVATE_KEY before releasing'
+            exit 1
+          fi
+      - name: Test
+        run: make test
+      - name: Build and package without demo
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: make package VERSION="$VERSION"
+      - name: Smoke-test packaged updater
+        if: env.SPARKLE_PUBLIC_KEY != ''
+        run: build/Release/Build/Products/Release/Cortes.app/Contents/MacOS/Cortes --self-test
+      - name: Sign and verify update feed
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$SPARKLE_ED_PRIVATE_KEY" ]]; then
+            make appcast VERSION="$VERSION"
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            echo '::notice::Build-only run: no update signing key configured, skipping appcast'
+          else
+            echo '::error::No update signing key configured'
+            exit 1
+          fi
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cortes-release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish tagged release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ${{ vars.MACOS_RUNNER }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cortes-release
+          path: dist
+      - name: Verify and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          cd dist
+          test -s appcast.xml
+          shasum -a 256 -c SHA256SUMS
+          gh release create "v$VERSION" --verify-tag --draft --title "v$VERSION" --generate-notes "cortes-$VERSION-macos-arm64.zip" appcast.xml SHA256SUMS
+          gh release edit "v$VERSION" --draft=false --latest

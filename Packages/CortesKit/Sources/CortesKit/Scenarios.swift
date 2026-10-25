@@ -1,3 +1,4 @@
+#if !CORTES_DISTRIBUTION
 import CoreGraphics
 import Foundation
 import os
@@ -94,3 +95,4 @@ public struct ReplayBackend: LLMBackend {
      }}
     """
 }
+#endif

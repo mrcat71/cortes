@@ -5,10 +5,16 @@ struct CortesApp: App {
     @State private var model: AppModel
 
     init() {
+        if CommandLine.arguments.contains("--self-test") {
+            ReleaseSmoke.run()
+        }
         let model = AppModel()
         _model = State(initialValue: model)
         // Start after the run loop is up, so the panel and hotkey are created inside a running app.
-        DispatchQueue.main.async { model.start() }
+        DispatchQueue.main.async {
+            model.start()
+            AppUpdater.shared.start()
+        }
     }
 
     var body: some Scene {
@@ -16,12 +22,14 @@ struct CortesApp: App {
             MenuContent(model: model)
         }
 
+        #if DEBUG
         Window(AppModel.demoWindowTitle, id: AppModel.demoWindowID) {
             DemoChatView(model: model)
         }
         .defaultSize(width: 520, height: 640)
         // `open Cortes.app --args --demo` starts with the Demo Chat open, for demo prep.
         .defaultLaunchBehavior(CommandLine.arguments.contains("--demo") ? .presented : .suppressed)
+        #endif
 
         Settings {
             SettingsView(model: model)
@@ -50,14 +58,18 @@ struct MenuContent: View {
                 isOn: Binding(get: { model.isAllowed(key) }, set: { model.setAllowed(key, $0) }))
         }
         Divider()
+        #if DEBUG
         Button("Demo Chat…") {
             openWindow(id: AppModel.demoWindowID)
             NSApp.activate()
         }
+        #endif
         if !model.axTrusted {
             Button("Grant Accessibility…") { model.requestAccessibility() }
         }
         SettingsLink { Text("Settings…") }
+        Button("Check for Updates…") { AppUpdater.shared.checkForUpdates() }
+            .disabled(!AppUpdater.shared.canCheckForUpdates)
         Divider()
         Button("Quit Cortes") { NSApp.terminate(nil) }
             .keyboardShortcut("q")

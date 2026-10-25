@@ -1,5 +1,6 @@
 # Xcode and SwiftPM build output
 build/
+dist/
 DerivedData/
 .build/
 .swiftpm/

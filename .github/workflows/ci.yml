@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "renovate/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-test:
+    name: build + test (Apple Silicon, no demo)
+    # Fork code must never execute on a privileged personal Mac.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || vars.MACOS_RUNNER == 'xcode-27'
+    runs-on: ${{ vars.MACOS_RUNNER }}
+    timeout-minutes: 30
+    env:
+      SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Test
+        run: make test
+      - name: Build and package without demo
+        run: make package VERSION="0.0.0-dev.${GITHUB_SHA::7}"
+      - name: Smoke-test packaged updater
+        if: env.SPARKLE_PUBLIC_KEY != ''
+        run: build/Release/Build/Products/Release/Cortes.app/Contents/MacOS/Cortes --self-test
+      - name: Upload app and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cortes-ci-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7

@@ -1,3 +1,4 @@
+#if DEBUG
 import CortesKit
 import SwiftUI
 
@@ -75,3 +76,4 @@ private struct DemoMessageRow: View {
         }
     }
 }
+#endif

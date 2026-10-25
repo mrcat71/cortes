@@ -1,12 +1,16 @@
 APP := build/DerivedData/Build/Products/Debug/Cortes.app
 IDENTITY ?= Cortes Local Signing
+VERSION ?= 0.1.0
+SPARKLE_PUBLIC_KEY ?=
+RELEASE_APP := build/Release/Build/Products/Release/Cortes.app
+SPARKLE_TOOLS := build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin
 
-.PHONY: build run demo test signing-identity
+.PHONY: build run demo test release-build package appcast signing-identity
 
 # Builds ad-hoc, then re-signs with a stable local identity when one exists. A stable signature keeps the
 # Accessibility grant across rebuilds; ad-hoc builds lose it every time.
 build:
-	xcodebuild -project Cortes.xcodeproj -scheme Cortes -configuration Debug -derivedDataPath build/DerivedData build -quiet
+	xcodebuild -project Cortes.xcodeproj -scheme Cortes -configuration Debug -derivedDataPath build/DerivedData build -quiet SPARKLE_PUBLIC_KEY="$(SPARKLE_PUBLIC_KEY)"
 	@if security find-certificate -c "$(IDENTITY)" >/dev/null 2>&1; then \
 		for lib in "$(APP)"/Contents/MacOS/*.dylib; do codesign --force --sign "$(IDENTITY)" "$$lib" || exit 1; done; \
 		codesign --force --entitlements App/Cortes.entitlements --sign "$(IDENTITY)" "$(APP)" && echo "signed with $(IDENTITY)"; \
@@ -24,6 +28,19 @@ demo: build
 
 test:
 	swift test --package-path Packages/CortesKit
+
+# Distribution builds never use the developer's local signing identity.
+release-build:
+	xcodebuild -project Cortes.xcodeproj -scheme Cortes -configuration Release -destination 'generic/platform=macOS' -derivedDataPath build/Release build -quiet ARCHS=arm64 ONLY_ACTIVE_ARCH=NO DEAD_CODE_STRIPPING=YES SWIFT_ACTIVE_COMPILATION_CONDITIONS=CORTES_DISTRIBUTION CODE_SIGN_IDENTITY=- MARKETING_VERSION="$(VERSION)" CURRENT_PROJECT_VERSION="$(VERSION)" SPARKLE_PUBLIC_KEY="$(SPARKLE_PUBLIC_KEY)"
+	swift scripts/prepare-release.swift "$(RELEASE_APP)"
+	codesign --force --sign - "$(RELEASE_APP)/Contents/Resources/CortesKit_CortesKit.bundle"
+	codesign --force --entitlements App/Cortes.entitlements --sign - "$(RELEASE_APP)"
+
+package: release-build
+	bash scripts/package-app.sh "$(VERSION)" "$(RELEASE_APP)"
+
+appcast:
+	bash scripts/make-appcast.sh "$(VERSION)" "$(RELEASE_APP)" "$(SPARKLE_TOOLS)"
 
 # One-time: a self-signed code signing certificate in the login keychain, used only on this Mac.
 # Remove it with: security delete-identity -c "Cortes Local Signing"
