@@ -9,7 +9,8 @@ a reply and explains risk flags. Sometimes the recommendation is to say nothing 
 
 The default AI is **Gemma 4 12B running locally through Ollama**. No API key is needed. Cortes only
 copies replies to your clipboard: it never sends messages. This walkthrough covers Demo Chat and Slack;
-suggestions are displayed as text.
+suggestions are displayed as text. Additional applications can provide text context, and audio-only
+call assistance can suggest what to say next from an on-device transcript.
 
 ## Run it
 
@@ -22,6 +23,9 @@ suggestions are displayed as text.
   roughly 8-10 GB of model memory, in addition to macOS and other apps.
 - Slack's desktop app and Accessibility permission only for the live Slack workflow.
   The built-in Demo Chat needs neither.
+- Other applications need Accessibility support and explicit per-app opt-in. Voice calls need macOS 26+,
+  system audio capture permission, and on-device speech assets for the chosen language. Microphone
+  permission is needed only if you include your own voice.
 
 ### First useful result, without Slack
 
@@ -67,6 +71,61 @@ Without the signing identity, the build is ad-hoc signed and Accessibility permi
 each rebuild. Xcode's Run action also stays ad-hoc signed. If Cortes shows a permission warning despite
 being enabled, `tccutil reset Accessibility io.github.mrcat71.cortes` clears its existing grant;
 enable it again afterward.
+
+### Other applications
+
+In **Settings → Applications**, enable each app you want Cortes to read. The default is **Selected text
+only**: select the relevant text in that app, then press **⌃⌥V**. **Visible window text** instead walks
+the frontmost window's Accessibility tree, excluding editable fields, protected controls and off-window
+elements, up to 6000 characters. Some apps don't expose enough text; Cortes reports this rather than
+falling back to screenshots or OCR. Slack keeps its specialized conversation reader.
+
+Generic context has no verified message authors or speaker identities. Window text may include unrelated
+labels or navigation, and names cannot reliably be pseudonymized without knowing the participants.
+Model generation still needs **Allow analysis** for that context, separately from the per-app capture
+permission. Auto mode reacts to changes after the initial snapshot; changing windows alone does not
+trigger generation.
+
+### Voice calls, including video calls
+
+1. Join a call, then open **Settings → Voice Calls** and select its application. A browser selection
+   includes audio from all its tabs; close or mute unrelated tabs.
+2. Set the speech language, for example `en-US`, `ru-RU` or `es-ES`. Availability depends on Apple's
+   on-device models: unsupported locales fail without uploading audio. Assets may download on first use.
+3. Optionally enable **Include my microphone**. Use headphones so remote speech isn't picked up again
+   on your microphone. App audio is labeled **Call participants**, microphone audio **ME**; individual
+   remote speakers are not identified.
+4. With the participants' knowledge and permission, click **Start listening**. macOS may request
+   **System Audio Recording** access and, if selected, **Microphone** access. The voice model must be
+   downloaded in Ollama at a loopback URL (`localhost`, `127.0.0.1` or `::1`). Cloud-backed models,
+   including local aliases, are rejected by a metadata check before listening and each inference.
+5. **Generate suggestions automatically** reacts to final transcript utterances without a hotkey,
+   independently of text Auto mode. Turn it off to use **⌃⌥V** manually. New speech is coalesced while
+   the current model response completes, instead of repeatedly restarting inference.
+6. Click **Stop listening and clear transcript** in Settings, the menu or the suggestion overlay.
+
+Calls use Core Audio process taps and Apple's on-device `SpeechAnalyzer`, not screen capture or cloud
+speech recognition. No camera access, video frames, screenshots or audio recording files are created.
+Transcripts keep at most 40 recent utterances in memory; prompts use the existing 20-message/6000-character
+window. Calls always use local Ollama even if the text engine is set to cloud.
+
+Listening continues across app switches, but stops and clears the transcript on Stop, Pause, sleep,
+screen lock or quit. It never resumes automatically. Changing the call application, language or microphone
+selection requires stopping first. Text capture is suspended during a listening session and resumes
+when the session is explicitly stopped. Call transcription and LLM latency both affect how quickly the
+voices respond; this does not make a 12B model instantaneous.
+Text capture is suspended during sleep and screen lock, and resumes after wake/unlock if the mode is
+not Paused. Audio listening still requires a new Start.
+
+For a file-only speech diagnostic with no live capture, use a short synthetic clip (30 seconds maximum):
+
+```sh
+say -v Samantha -o /tmp/cortes-speech-test.aiff "The meeting starts tomorrow. Please review the deployment plan."
+swift run --package-path Packages/CortesKit cortes-cli speech-file /tmp/cortes-speech-test.aiff en-US
+```
+
+The command prints asset-preparation progress and the local transcript. First use may need to download
+Apple's language assets; it never starts a microphone or system-audio tap.
 
 ## Expertise: what we built into the model's workflow
 
@@ -161,6 +220,9 @@ plain-model benchmark has been recorded in this repository yet.
   Preferences, the allowlist and detected Slack name persist in UserDefaults; an optional cloud key is
   stored in Keychain. Copied replies go to the system clipboard. These controls do not erase clipboard,
   model-server or provider state.
+- Additional applications are disabled by default. Call capture requires an explicit Start for every
+  session; choosing an app or enabling automatic suggestions does not start listening. Cortes does not
+  save audio or transcripts. Apple manages downloaded speech-model assets separately.
 - The default local path needs no secrets. There is no `.env` loader; do not commit keys or put them in
   commands, fixtures or screenshots. Use the app's Keychain flow for the optional cloud backend.
 - Chat text is untrusted input. The prompt tells the model not to obey transcript instructions;
