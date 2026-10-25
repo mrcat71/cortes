@@ -340,5 +340,17 @@ Packages/CortesKit/      Capture, prompts, backends, validation, risk rules, voi
 docs/poc-results.md      Recorded proof-of-concept checks and remaining manual checks
 ```
 
+### Dependency updates
+
+[Renovate configuration](.github/renovate.json) follows the personal-project policy: ordinary updates
+wait seven days after release, require a release timestamp, and assign and request review from
+`mrcat71`. Swift minor/patch updates are grouped; major updates stay separate. GitHub Actions updates
+are grouped and pinned to digests. Automerge is disabled. Cortes has no CI workflow, so PRs open after
+the release-age gate without waiting for status checks. Before switching to `prCreation: status-success`,
+add CI that runs on `renovate/**` branch pushes. Security alerts retain Renovate's default release-age
+bypass.
+
+Validate configuration changes with `renovate-config-validator --strict --no-global .github/renovate.json`.
+
 Disco Elysium is a trademark of ZA/UM. Cortes is an unaffiliated fan-inspired project and uses no art or
 text from the game.
