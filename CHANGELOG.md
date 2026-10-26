@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.1.2 - Unreleased
+## 0.1.3 - Unreleased
+
+- Restore real participant names in suggestions and copied replies when the model transliterates privacy aliases into Cyrillic.
+- Open suggestions at the top of the panel on every new request and prefer space that fits the full result before using a compact, scrollable popup.
+- Keep the floating panel's size under placement control so it stays within the visible screen.
+
+## 0.1.2 - 2026-10-26
 
 - Position suggestions near the active composer without covering visible messages; use a compact, scrollable popup when space is limited.
 - Read focused Slack reply threads with separate consent and cooldowns, retaining the parent message alongside recent replies.

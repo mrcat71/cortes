@@ -32,6 +32,26 @@ import Testing
         #expect(frame.height < 850 || frame.width < 380)
     }
 
+    @Test func prefersTheFullResultOverAShortRegionNearTheComposer() throws {
+        let pane = CGRect(x: 450, y: 260, width: 1140, height: 730)
+        let draft = CGRect(x: 450, y: 130, width: 1140, height: 100)
+        let frame = try #require(OverlayPlacement.frame(
+            size: CGSize(width: 380, height: 850), visibleFrame: screen, anchor: pane,
+            composer: draft, protectedFrames: [pane]))
+        #expect(frame.size == CGSize(width: 380, height: 850))
+        #expect(frame.maxX < pane.minX)
+        #expect(!frame.intersects(pane) && !frame.intersects(draft))
+    }
+
+    @Test func oversizedResultStaysOnScreenAndUsesTheAvailableHeight() throws {
+        let frame = try #require(OverlayPlacement.frame(
+            size: CGSize(width: 380, height: 1800), visibleFrame: screen, anchor: nil,
+            composer: nil, protectedFrames: []))
+        #expect(frame.width == 380)
+        #expect(frame.height == screen.height - 16)
+        #expect(screen.contains(frame))
+    }
+
     @Test(arguments: [CGRect(x: -1920, y: 0, width: 1920, height: 1080), CGRect(x: 0, y: 1000, width: 1400, height: 900)])
     func placementSupportsNonPrimaryDisplays(visible: CGRect) throws {
         let pane = CGRect(x: visible.minX + 100, y: visible.minY + 200, width: 800, height: 600)

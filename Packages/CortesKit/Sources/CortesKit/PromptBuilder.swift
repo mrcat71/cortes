@@ -75,6 +75,8 @@ public enum PromptBuilder {
            situation), gist (at most 12 words: what is really going on, naming who did what).
         8. Thoughts and gist use the chat's language too.
         9. Output exactly one JSON object with the keys below, in this order, and nothing else.
+        10. Preserve participant names and privacy aliases exactly in gist, thought and reply, even in another
+            language. Never translate, transliterate or inflect them; real names are restored locally.
 
         VOICES
         \(cards)

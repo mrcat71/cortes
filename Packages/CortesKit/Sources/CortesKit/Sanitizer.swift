@@ -33,17 +33,30 @@ public struct Pseudonymizer: Sendable {
         "Avery", "Blake", "Casey", "Devon", "Emery", "Finley", "Harper", "Jordan",
         "Kendall", "Logan", "Morgan", "Parker", "Quinn", "Riley", "Sawyer", "Taylor",
     ]
+    // Models sometimes transliterate names despite the instruction to preserve aliases.
+    private static let localizedAliases: [String: [String]] = [
+        "Avery": ["Авэри", "Авери", "Эвери", "Эйвери", "Эйвэри"],
+        "Blake": ["Блейк", "Блэйк"], "Casey": ["Кейси", "Кэйси"],
+        "Devon": ["Девон", "Дэвон"], "Emery": ["Эмери", "Эмэри"],
+        "Finley": ["Финли"], "Harper": ["Харпер"], "Jordan": ["Джордан"],
+        "Kendall": ["Кендалл", "Кендал", "Кэндэлл"], "Logan": ["Логан"],
+        "Morgan": ["Морган"], "Parker": ["Паркер"], "Quinn": ["Куинн", "Квинн"],
+        "Riley": ["Райли"], "Sawyer": ["Сойер"], "Taylor": ["Тейлор", "Тэйлор"],
+    ]
 
     /// Real full name -> alias.
     public private(set) var aliases: [String: String] = [:]
     private var replacements: [(pattern: String, alias: String)] = []
-    private var restorations: [(alias: String, real: String)] = []
+    private var restorations: [String: String] = [:]
 
     public init(names: [String], myName: String?) {
         let unique = Array(Set(names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }))
             .sorted()
-        let taken = Set(unique.flatMap { $0.lowercased().split(separator: " ").map(String.init) })
-        var pool = Self.aliasPool.filter { !taken.contains($0.lowercased()) }.makeIterator()
+        let taken = Set((unique + (myName.map { [$0] } ?? []))
+            .flatMap { $0.lowercased().split(separator: " ").map(String.init) })
+        var pool = Self.aliasPool.filter { alias in
+            !([alias] + (Self.localizedAliases[alias] ?? [])).contains { taken.contains($0.lowercased()) }
+        }.makeIterator()
         var index = 1
         for name in unique {
             let alias = pool.next() ?? "Person\(index)"
@@ -53,7 +66,10 @@ public struct Pseudonymizer: Sendable {
             if let first = name.split(separator: " ").first.map(String.init), first.count >= 3, first != name {
                 replacements.append((first, alias))
             }
-            restorations.append((alias, name.split(separator: " ").first.map(String.init) ?? name))
+            let real = name.split(separator: " ").first.map(String.init) ?? name
+            for spelling in [alias] + (Self.localizedAliases[alias] ?? []) {
+                restorations[spelling.lowercased()] = real
+            }
         }
         if let me = myName?.trimmingCharacters(in: .whitespaces), !me.isEmpty {
             replacements.append((me, "ME"))
@@ -79,9 +95,17 @@ public struct Pseudonymizer: Sendable {
 
     /// Turns aliases in generated text back into real first names.
     public func restore(_ text: String) -> String {
+        guard !restorations.isEmpty else { return text }
+        let alternatives = restorations.keys.sorted().map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+        let pattern = "(?<![\\p{L}\\p{N}])(?:" + alternatives + ")(?![\\p{L}\\p{N}])"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return text }
         var result = text
-        for (alias, real) in restorations {
-            result = Self.replaceWholeWord(alias, with: real, in: result)
+        // Match the original text once so a restored real name cannot become another alias.
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            let spelling = (text as NSString).substring(with: match.range).lowercased()
+            if let real = restorations[spelling], let range = Range(match.range, in: result) {
+                result.replaceSubrange(range, with: real)
+            }
         }
         return result
     }

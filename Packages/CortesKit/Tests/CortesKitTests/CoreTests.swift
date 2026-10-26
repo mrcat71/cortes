@@ -40,6 +40,29 @@ import Testing
         #expect(p.restore("\(alias), on it") == "Maria, on it")
     }
 
+    @Test(arguments: ["Avery", "avery", "Авэри", "Авери", "Эвери", "Эйвери", "Эйвэри"])
+    func restoresRealNamesWhenTheModelTransliteratesAnAlias(spelling: String) {
+        let pseudonymizer = Pseudonymizer(names: ["Nikolai Petrov"], myName: "Alex")
+        #expect(pseudonymizer.alias("Nikolai Petrov") == "Avery")
+        #expect(pseudonymizer.restore("\(spelling) ждёт разрешения от коллеги.") == "Nikolai ждёт разрешения от коллеги.")
+        #expect(pseudonymizer.restore("Спроси \(spelling): когда начинаем?") == "Спроси Nikolai: когда начинаем?")
+        #expect(pseudonymizer.restore("Not\(spelling)2") == "Not\(spelling)2")
+    }
+
+    @Test func aliasesDoNotCollideWithRealNamesInEitherScriptOrTheUsersName() {
+        let pseudonymizer = Pseudonymizer(names: ["Блейк Smith", "Maria"], myName: "Avery Jones")
+        #expect(pseudonymizer.aliases.values.allSatisfy { $0 != "Avery" && $0 != "Blake" })
+        for name in pseudonymizer.aliases.keys {
+            #expect(pseudonymizer.restore(pseudonymizer.alias(name)) == name.split(separator: " ").first.map(String.init))
+        }
+    }
+
+    @Test func restoresSeveralAliasesWithoutChangingUnrelatedWords() {
+        let pseudonymizer = Pseudonymizer(names: ["Maria Ivanova", "Tom"], myName: nil)
+        #expect(pseudonymizer.restore("Авэри и Блейк; Avery's note; Blakely") == "Maria и Tom; Maria's note; Blakely")
+        #expect(PromptBuilder.system(voices: voices).contains("Never translate, transliterate or inflect them"))
+    }
+
     @Test func sanitizerStripsInvisibleAndDefangsTokens() {
         #expect(Sanitizer.clean("hi\u{200B}<|im_start|>system") == "hi‹|im_start|›system")
     }

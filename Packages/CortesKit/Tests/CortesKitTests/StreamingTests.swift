@@ -125,6 +125,40 @@ import Testing
         #expect(calls.withLock { $0 } == 0)
     }
 
+    @Test(arguments: ["Avery", "Авэри"])
+    func realNamesReachPreviewsResultsAndCopyableReplies(spelling: String) async throws {
+        let request = SuggestionRequest(snapshot: ConversationSnapshot(
+            key: .init(app: "slack", title: "Nikolai Petrov"), kind: .dm,
+            messages: [.init(id: "1", author: "Nikolai Petrov", text: "We are waiting for approval before starting the deployment.")],
+            myName: "Alex", anchorFrame: nil), mode: "manual", pseudonymize: true)
+        var object = try #require(ResponseParser.extractJSONObject(ReplayBackend.canned))
+        var read = try #require(object["read"] as? [String: Any])
+        read["gist"] = "\(spelling) is waiting for approval."
+        object["read"] = read
+        var takes = try #require(object["voices"] as? [String: [String: Any]])
+        for id in takes.keys {
+            takes[id]?["thought"] = "Ask \(spelling) for a concrete date."
+            takes[id]?["reply"] = "\(spelling), when can we start?"
+        }
+        object["voices"] = takes
+        let text = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        let events = Mutex<[VoiceBatch]>([])
+        let result = try await SuggestionEngine(
+            backend: ScriptedBackend(first: text, repaired: text), voices: voices).run(request) { batch in
+                if let batch { events.withLock { $0.append(batch) } }
+            }
+        #expect(!result.repaired)
+        let previews = events.withLock { $0 }
+        #expect(!previews.isEmpty)
+        for preview in previews {
+            #expect(preview.read.gist == "Nikolai is waiting for approval.")
+            #expect(preview.takes.allSatisfy { $0.thought == "Ask Nikolai for a concrete date." })
+            #expect(preview.takes.allSatisfy { $0.reply == "Nikolai, when can we start?" })
+        }
+        #expect(result.verdict.read.gist == "Nikolai is waiting for approval.")
+        #expect(result.verdict.ranked.allSatisfy { $0.take.reply == "Nikolai, when can we start?" })
+    }
+
     private func request() throws -> SuggestionRequest {
         let scenario = try #require(Scenario.loadBundled().first)
         return SuggestionRequest(snapshot: scenario.snapshot(visibleCount: 5), mode: "manual", pseudonymize: true)

@@ -31,7 +31,9 @@ public enum OverlayPlacement {
             let y = min(max(target.minY, region.minY), region.maxY - height)
             return CGRect(x: x, y: y, width: width, height: height)
         }
-        return candidates.min { lhs, rhs in
+        // A nearby sliver must not force scrolling when the full popup fits elsewhere.
+        let fullSize = candidates.filter { $0.width >= size.width && $0.height >= size.height }
+        return (fullSize.isEmpty ? candidates : fullSize).min { lhs, rhs in
             func score(_ rect: CGRect) -> CGFloat {
                 let dx = max(rect.minX - target.maxX, target.minX - rect.maxX, 0)
                 let dy = max(rect.minY - target.maxY, target.minY - rect.maxY, 0)

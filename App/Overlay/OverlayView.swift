@@ -11,6 +11,8 @@ struct OverlayView: View {
             content
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onSizeChange($0) }
         }
+        .defaultScrollAnchor(.top)
+        .id(layout.presentationID)
         .frame(width: layout.width, height: layout.height)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

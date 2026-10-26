@@ -123,7 +123,8 @@ recent replies when context is shortened. If a thread is open without a focused 
 over the channel. No Slack API token is required.
 
 Suggestions open near the active composer, using free screen space outside visible message panes and
-input fields. A smaller free region gets a narrower or scrollable popup rather than covering messages.
+input fields. The popup prefers a region that fits the full result and opens at the top on every new
+request. When no full-size region exists, it becomes narrower or scrollable rather than covering messages.
 If no safe region exists, Cortes hides the popup and reports this in its menu; move or resize the chat
 window to make room. Generic app capture protects the entire source window.
 
@@ -312,7 +313,8 @@ plain-model benchmark has been recorded in this repository yet.
   scenarios are always allowed.
 - Before prompting, Cortes keeps a recent window of up to 20 messages within a roughly 6000-character
   budget. With the default privacy setting, known participant names become aliases and emails, links and
-  phone numbers become placeholders. Names are restored locally. This is not complete anonymization:
+  phone numbers become placeholders. Real first names are restored locally in previews, results and copied
+  replies, including recognized Cyrillic spellings of aliases. This is not complete anonymization:
   other identifying details can remain. Only use conversations you are authorized to process.
 - Cortes keeps conversation content in memory and clears its state on pause, sleep and screen lock.
   Preferences, the allowlist and detected Slack name persist in UserDefaults; an optional cloud key is
@@ -375,7 +377,7 @@ Before submission:
 ```sh
 make build
 make test
-make package VERSION=0.1.2
+make package VERSION=0.1.3
 cd Packages/CortesKit
 swift run cortes-cli prompt launch-war-room 5
 env -u ZAI_API_KEY OLLAMA_MODEL=gemma4:12b swift run cortes-cli ask launch-war-room 5
@@ -388,10 +390,11 @@ Replay. This CLI default differs from the app's local default. It prints latency
 situation, recommendation, strategies and risk reasons, not a hidden model reasoning trace.
 
 `make test` also checks translation-key and format-argument parity and bundled voice-label coverage.
-The default local build and package version is **0.1.2**; see [CHANGELOG.md](CHANGELOG.md) for its changes.
+The default local build and package version is **0.1.3**; see [CHANGELOG.md](CHANGELOG.md) for its changes.
 `make test-ui` renders synthetic English, Russian and Spanish consent, result, General and Privacy views into
-`build/interaction-check/` and checks app opt-in and hidden-icon activation policy. It opens temporary
-test windows but does not start capture, contact a model, read Keychain or write persistent preferences.
+`build/interaction-check/` and checks full-result panel sizing, scroll reset on reopening, app opt-in and
+hidden-icon activation policy. It opens temporary test windows but does not start capture, contact a model,
+read Keychain or write persistent preferences.
 Live Slack thread parsing, composer tracking, menu-icon removal/reopening and non-activating Copy/paste
 still need a manual check with an authorized test conversation.
 
@@ -463,8 +466,8 @@ tag on the checked commit. For example, the following commands create a tag and 
 publication, respectively:
 
 ```sh
-git tag -a v0.1.2 -m "Release 0.1.2"
-git push origin v0.1.2
+git tag -a v0.1.3 -m "Release 0.1.3"
+git push origin v0.1.3
 ```
 
 Do not move a published tag or replace its assets; ship a new patch version. Verify the workflow result,

@@ -6,6 +6,7 @@ import CortesKit
 final class OverlayLayout {
     var width: CGFloat = OverlayController.width
     var height: CGFloat = 200
+    var presentationID = UUID()
 }
 
 /// Borderless, non-activating floating panel: clicking it never takes focus away from Slack,
@@ -60,6 +61,8 @@ final class OverlayController {
             self.contentHeight = height
             self.scheduleRelayout()
         }
+        // Placement owns the window size; SwiftUI must not add competing window size constraints.
+        hosting.sizingOptions = []
         panel.contentView = hosting
     }
 
@@ -67,6 +70,7 @@ final class OverlayController {
         anchor = snapshot?.anchorFrame ?? fallbackAnchor
         composer = snapshot?.composerFrame
         protectedFrames = snapshot?.protectedFrames ?? []
+        layout.presentationID = UUID()
         wantsVisible = true
         relayout()
     }

@@ -74,6 +74,7 @@ enum InteractionSmoke {
                 layout.height = 420
                 try snapshot(OverlayView(model: model, layout: layout, onSizeChange: { _ in }),
                     size: CGSize(width: 240, height: 420), to: directory.appendingPathComponent("result-compact-\(code).png"))
+                try checkOverlayScrolling(model: model, directory: directory, code: code)
                 model.enableTextApp("com.example.Chat")
                 model.enableTextApp("com.example.Chat")
                 try check(model.enabledTextApps == ["com.example.Chat"], "App opt-in should be idempotent")
@@ -97,6 +98,74 @@ enum InteractionSmoke {
         if !condition { throw LLMError.unavailable(message) }
     }
 
+    private static func checkOverlayScrolling(model: AppModel, directory: URL, code: String) throws {
+        let layout = OverlayLayout()
+        layout.height = 200
+        var measuredHeight: CGFloat = 0
+        let hosting = FirstMouseHostingView(rootView: OverlayView(model: model, layout: layout) { measuredHeight = $0 })
+        hosting.sizingOptions = []
+        let panel = OverlayPanel()
+        panel.isReleasedWhenClosed = false
+        panel.contentView = hosting
+        panel.setFrame(CGRect(x: 40, y: 40, width: layout.width, height: layout.height), display: true)
+        panel.orderFrontRegardless()
+        defer { panel.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        hosting.layoutSubtreeIfNeeded()
+        try check(measuredHeight > layout.height, "Result must report its full height, not the scroll viewport height")
+        panel.orderOut(nil)
+
+        let existing = Set(NSApp.windows.map(ObjectIdentifier.init))
+        let controller = OverlayController(model: model)
+        controller.show(snapshot: nil, fallbackAnchor: nil)
+        defer { controller.hide() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        guard let presented = NSApp.windows.first(where: { $0 is OverlayPanel && !existing.contains(ObjectIdentifier($0)) }),
+              let content = presented.contentView, let screen = presented.screen else {
+            throw LLMError.unavailable("Cannot find the presented overlay panel")
+        }
+        try check(screen.visibleFrame.contains(presented.frame), "The entire panel must stay within the visible screen")
+        let fullHeight = min(measuredHeight, screen.visibleFrame.height - 16)
+        try check(abs(presented.frame.height - fullHeight) < 2, "The controller must expand to the full result height when space permits")
+        try writeSnapshot(content, to: directory.appendingPathComponent("result-expanded-\(code).png"))
+
+        let visible = screen.visibleFrame
+        let protected = CGRect(x: visible.minX, y: visible.minY + 220, width: visible.width, height: visible.height - 220)
+        let snapshot = ConversationSnapshot(key: .init(app: "demo", title: "Synthetic conversation"), kind: .channel,
+            messages: [], myName: nil, anchorFrame: protected, protectedFrames: [protected])
+        controller.update(snapshot: snapshot)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try check(!presented.frame.intersects(protected), "The compact panel must not cover source messages")
+        guard let scroll = scrollView(in: content), let document = scroll.documentView else {
+            throw LLMError.unavailable("Cannot find the compact overlay scroll view")
+        }
+        try check(abs(scroll.contentView.bounds.height - presented.frame.height) < 2, "The scroll viewport must fill the panel")
+        try check(isAtTop(scroll), "A result must initially open at the top")
+        let bottom = document.isFlipped ? document.bounds.maxY - scroll.contentView.bounds.height : document.bounds.minY
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: bottom))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try check(!isAtTop(scroll), "The compact overlay must allow scrolling to the remaining cards")
+        controller.hide()
+        controller.show(snapshot: snapshot, fallbackAnchor: nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        content.layoutSubtreeIfNeeded()
+        guard let reopened = scrollView(in: content) else {
+            throw LLMError.unavailable("Cannot find the reopened overlay scroll view")
+        }
+        try check(isAtTop(reopened), "Reopening must discard the previous scroll offset")
+    }
+
+    private static func scrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
+
+    private static func isAtTop(_ scroll: NSScrollView) -> Bool {
+        guard let document = scroll.documentView else { return false }
+        let top = document.isFlipped ? document.bounds.minY : document.bounds.maxY - scroll.contentView.bounds.height
+        return abs(scroll.contentView.bounds.minY - top) < 2
+    }
+
     private static func snapshot<Content: View>(_ content: Content, size: CGSize, to url: URL) throws {
         let hosting = NSHostingView(rootView: content.frame(width: size.width, height: size.height))
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
@@ -106,6 +175,10 @@ enum InteractionSmoke {
         defer { window.close() }
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         hosting.layoutSubtreeIfNeeded()
+        try writeSnapshot(hosting, to: url)
+    }
+
+    private static func writeSnapshot(_ hosting: NSView, to url: URL) throws {
         guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
             throw LLMError.unavailable("Cannot render synthetic UI")
         }

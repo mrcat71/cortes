@@ -1,6 +1,6 @@
 APP := build/DerivedData/Build/Products/Debug/Cortes.app
 IDENTITY ?= Cortes Local Signing
-VERSION ?= 0.1.2
+VERSION ?= 0.1.3
 SPARKLE_PUBLIC_KEY ?=
 RELEASE_APP := build/Release/Build/Products/Release/Cortes.app
 SPARKLE_TOOLS := build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin
