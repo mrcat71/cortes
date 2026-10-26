@@ -9,3 +9,6 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Python packaging scripts
+__pycache__/

@@ -3,8 +3,13 @@ set -euo pipefail
 
 version="${1:?Usage: package-app.sh VERSION APP_PATH}"
 app="${2:?Usage: package-app.sh VERSION APP_PATH}"
+dmgbuild="${DMGBUILD:-build/dmg-tools/bin/dmgbuild}"
 if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-dev\.[0-9a-f]+)?$ ]]; then
     printf 'Invalid version: %s (expected X.Y.Z or X.Y.Z-dev.COMMIT)\n' "$version" >&2
+    exit 1
+fi
+if ! command -v "$dmgbuild" >/dev/null 2>&1; then
+    printf 'dmgbuild is missing; run make dmg-tools first\n' >&2
     exit 1
 fi
 
@@ -26,7 +31,10 @@ fi
 
 mkdir -p dist
 archive="cortes-${version}-macos-arm64.zip"
+image="cortes-${version}-macos-arm64.dmg"
 # ditto preserves the bundle layout, executable bits and signature metadata.
 ditto -c -k --sequesterRsrc --keepParent "$app" "dist/$archive"
-(cd dist && shasum -a 256 "$archive" > SHA256SUMS)
-printf 'Packaged dist/%s and dist/SHA256SUMS\n' "$archive"
+"$dmgbuild" -s scripts/dmg-settings.py -D "app=$app" Cortes "dist/$image"
+hdiutil verify -quiet "dist/$image"
+(cd dist && shasum -a 256 "$archive" "$image" > SHA256SUMS)
+printf 'Packaged dist/%s, dist/%s and dist/SHA256SUMS\n' "$archive" "$image"

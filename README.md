@@ -23,9 +23,11 @@ call assistance can suggest what to say next from an on-device transcript.
 ### Release builds and updates
 
 Tagged releases contain the production app only: no Demo Chat, scripted conversations, or Replay
-backend. Download the Apple Silicon ZIP from [GitHub Releases](https://github.com/mrcat71/cortes/releases),
-extract `Cortes.app`, and move it to `/Applications`. Releases become available after the tag workflow
-has completed; adding this workflow does not itself publish a release.
+backend. Download `cortes-<version>-macos-arm64.dmg` from
+[GitHub Releases](https://github.com/mrcat71/cortes/releases), open it, and drag **Cortes** onto the
+**Applications** shortcut. Eject the Cortes disk image, then launch Cortes from Applications.
+The ZIP is retained for Sparkle updates and manual extraction. Releases become available after the
+tag workflow completes; existing releases are not changed when packaging is updated.
 
 The app uses Sparkle to check for updates through the latest release's signed `appcast.xml`.
 Use **Check for Updates…** in the menu bar, or **Settings → General → Updates** to control automatic
@@ -341,7 +343,7 @@ Before submission:
 ```sh
 make build
 make test
-make package VERSION=0.1.0
+make package VERSION=0.1.1
 cd Packages/CortesKit
 swift run cortes-cli prompt launch-war-room 5
 env -u ZAI_API_KEY OLLAMA_MODEL=gemma4:12b swift run cortes-cli ask launch-war-room 5
@@ -357,6 +359,13 @@ situation, recommendation, strategies and risk reasons, not a hidden model reaso
 permission and masks text by default. `--raw` prints actual conversation content; do not use it in
 public demos or shared logs.
 
+`make package VERSION=X.Y.Z` installs the pinned `dmgbuild` toolchain from
+[.github/dmg-requirements.txt](.github/dmg-requirements.txt) into `build/dmg-tools`, then produces the
+demo-free ZIP, drag-and-drop DMG, and checksums in `dist/`. It needs Python 3.10+ and macOS disk-image
+services. The DMG uses Cuadro's side-by-side app/Applications layout with an installation arrow.
+Packaging runs installer regression tests, mounts the DMG read-only, and checks the embedded app's
+version and signature, the Applications shortcut, and the saved Finder icon layout before succeeding.
+
 ```text
 App/                    SwiftUI menu bar app, overlay, settings and Demo Chat
 Packages/CortesKit/      Capture, prompts, backends, validation, risk rules, voices and tests
@@ -367,11 +376,12 @@ scripts/                Release packaging and signed update-feed validation
 ### CI and tag releases
 
 [`ci.yml`](.github/workflows/ci.yml) runs the package tests and builds a demo-free Apple Silicon
-release ZIP on pull requests to `main`, pushes to `main` and `renovate/**`, and manual runs. It
-uploads the ZIP and `SHA256SUMS` as run artifacts. Tests still exercise the development demo fixtures.
+release ZIP and drag-and-drop DMG on pull requests to `main`, pushes to `main` and `renovate/**`, and
+manual runs. It uploads both and `SHA256SUMS` as run artifacts. Tests still exercise the development
+demo fixtures.
 
 [`release.yml`](.github/workflows/release.yml) repeats the tests and packaging on every `vX.Y.Z`
-tag push, signs and verifies the Sparkle feed, then publishes the ZIP, `appcast.xml`, and `SHA256SUMS`
+tag push, signs and verifies the Sparkle feed, then publishes the DMG, ZIP, `appcast.xml`, and `SHA256SUMS`
 to GitHub Releases. The tag supplies both bundle version fields, so Sparkle compares release versions
 rather than CI run numbers. Only stable tags are supported. A manual run is build-only, never publishes,
 and skips feed signing if the secret has not been configured.
@@ -406,13 +416,14 @@ tag on the checked commit. For example, the following commands create a tag and 
 publication, respectively:
 
 ```sh
-git tag -a v0.1.0 -m "Release 0.1.0"
-git push origin v0.1.0
+git tag -a v0.1.1 -m "Release 0.1.1"
+git push origin v0.1.1
 ```
 
 Do not move a published tag or replace its assets; ship a new patch version. Verify the workflow result,
-all three release assets, `shasum -a 256 -c SHA256SUMS`, and an update from the previous installed
-version. Local checks do not prove that GitHub published the feed or that an installed app upgraded.
+all four release assets, `shasum -a 256 -c SHA256SUMS`, the DMG's drag-and-drop layout, and an update
+from the previous installed version. Local checks do not prove that GitHub published the feed or that
+an installed app upgraded.
 
 ### Dependency updates
 

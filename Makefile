@@ -4,8 +4,9 @@ VERSION ?= 0.1.0
 SPARKLE_PUBLIC_KEY ?=
 RELEASE_APP := build/Release/Build/Products/Release/Cortes.app
 SPARKLE_TOOLS := build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin
+DMGBUILD ?= build/dmg-tools/bin/dmgbuild
 
-.PHONY: build run demo test release-build package appcast signing-identity
+.PHONY: build run demo test release-build dmg-tools package appcast signing-identity
 
 # Builds ad-hoc, then re-signs with a stable local identity when one exists. A stable signature keeps the
 # Accessibility grant across rebuilds; ad-hoc builds lose it every time.
@@ -36,8 +37,16 @@ release-build:
 	codesign --force --sign - "$(RELEASE_APP)/Contents/Resources/CortesKit_CortesKit.bundle"
 	codesign --force --entitlements App/Cortes.entitlements --sign - "$(RELEASE_APP)"
 
-package: release-build
-	bash scripts/package-app.sh "$(VERSION)" "$(RELEASE_APP)"
+build/dmg-tools/bin/dmgbuild: .github/dmg-requirements.txt
+	python3 -m venv build/dmg-tools
+	build/dmg-tools/bin/python -m pip install --disable-pip-version-check -r .github/dmg-requirements.txt
+
+dmg-tools: build/dmg-tools/bin/dmgbuild
+
+package: release-build dmg-tools
+	build/dmg-tools/bin/python scripts/test_dmg.py
+	DMGBUILD="$(DMGBUILD)" bash scripts/package-app.sh "$(VERSION)" "$(RELEASE_APP)"
+	build/dmg-tools/bin/python scripts/verify-dmg.py "dist/cortes-$(VERSION)-macos-arm64.dmg" "$(VERSION)"
 
 appcast:
 	bash scripts/make-appcast.sh "$(VERSION)" "$(RELEASE_APP)" "$(SPARKLE_TOOLS)"

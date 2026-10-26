@@ -105,6 +105,7 @@ jobs:
         run: |
           cd dist
           test -s appcast.xml
+          test -s "cortes-$VERSION-macos-arm64.dmg"
           shasum -a 256 -c SHA256SUMS
-          gh release create "v$VERSION" --verify-tag --draft --title "v$VERSION" --generate-notes "cortes-$VERSION-macos-arm64.zip" appcast.xml SHA256SUMS
+          gh release create "v$VERSION" --verify-tag --draft --title "v$VERSION" --generate-notes "cortes-$VERSION-macos-arm64.dmg" "cortes-$VERSION-macos-arm64.zip" appcast.xml SHA256SUMS
           gh release edit "v$VERSION" --draft=false --latest
