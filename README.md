@@ -1,3 +1,5 @@
+<img src="docs/app-icon.png" width="128" height="128" alt="Cortes app icon: an ivory reply bubble in front of blue, pink, yellow and red voice bubbles">
+
 # Cortes
 
 **Four inner voices. One work chat. You decide what to send.**
@@ -368,10 +370,17 @@ version and signature, the Applications shortcut, and the saved Finder icon layo
 
 ```text
 App/                    SwiftUI menu bar app, overlay, settings and Demo Chat
+App/AppIcon.icon/       App icon: Icon Composer document with one SVG per layer
 Packages/CortesKit/      Capture, prompts, backends, validation, risk rules, voices and tests
 docs/poc-results.md      Recorded proof-of-concept checks and remaining manual checks
 scripts/                Release packaging and signed update-feed validation
 ```
+
+The app icon is an ivory reply bubble in front of one bubble per inner voice, each filled with that
+voice's `ui.color` from its JSON; keep the fills in sync if a voice color changes. Edit the SVGs in
+`App/AppIcon.icon/Assets/` directly, or open the document in Icon Composer, which ships inside Xcode.
+Xcode compiles it into a Liquid Glass icon on macOS 26 and later and generates flat fallback images
+for macOS 15. After an edit, run `make icon-preview` to refresh `docs/app-icon.png`, the README image.
 
 ### CI and tag releases
 

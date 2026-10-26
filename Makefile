@@ -5,8 +5,9 @@ SPARKLE_PUBLIC_KEY ?=
 RELEASE_APP := build/Release/Build/Products/Release/Cortes.app
 SPARKLE_TOOLS := build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin
 DMGBUILD ?= build/dmg-tools/bin/dmgbuild
+ICTOOL = $(shell xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool
 
-.PHONY: build run demo test release-build dmg-tools package appcast signing-identity
+.PHONY: build run demo test release-build dmg-tools package appcast icon-preview signing-identity
 
 # Builds ad-hoc, then re-signs with a stable local identity when one exists. A stable signature keeps the
 # Accessibility grant across rebuilds; ad-hoc builds lose it every time.
@@ -50,6 +51,10 @@ package: release-build dmg-tools
 
 appcast:
 	bash scripts/make-appcast.sh "$(VERSION)" "$(RELEASE_APP)" "$(SPARKLE_TOOLS)"
+
+# Xcode compiles App/AppIcon.icon into the app itself; this only refreshes the README image after an edit.
+icon-preview:
+	"$(ICTOOL)" App/AppIcon.icon --export-image --output-file docs/app-icon.png --platform macOS --rendition Default --width 256 --height 256 --scale 1 >/dev/null
 
 # One-time: a self-signed code signing certificate in the login keychain, used only on this Mac.
 # Remove it with: security delete-identity -c "Cortes Local Signing"

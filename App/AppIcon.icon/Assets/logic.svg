@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Logic's ui.color. Voices fan out 12 degrees apart behind the reply, each 2% smaller. -->
+  <ellipse fill="#5B8DEF" cx="400" cy="564.4" rx="270.5" ry="223.4" transform="rotate(12 681.5 801.5)"/>
+</svg>

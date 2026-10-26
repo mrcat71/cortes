@@ -1,0 +1,98 @@
+{
+  "fill-specializations" : [
+    {
+      "value" : {
+        "linear-gradient" : [
+          "extended-srgb:0.14510,0.14118,0.18039,1.00000",
+          "extended-srgb:0.05098,0.05098,0.06667,1.00000"
+        ],
+        "orientation" : {
+          "start" : {
+            "x" : 0.5,
+            "y" : 0
+          },
+          "stop" : {
+            "x" : 0.5,
+            "y" : 0.75
+          }
+        }
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "linear-gradient" : [
+          "extended-srgb:0.14510,0.14118,0.18039,1.00000",
+          "extended-srgb:0.05098,0.05098,0.06667,1.00000"
+        ],
+        "orientation" : {
+          "start" : {
+            "x" : 0.5,
+            "y" : 0
+          },
+          "stop" : {
+            "x" : 0.5,
+            "y" : 0.75
+          }
+        }
+      }
+    }
+  ],
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "reply.svg",
+          "name" : "reply"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.25
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : true,
+          "image-name" : "logic.svg",
+          "name" : "logic"
+        },
+        {
+          "glass" : true,
+          "image-name" : "empathy.svg",
+          "name" : "empathy"
+        },
+        {
+          "glass" : true,
+          "image-name" : "sarcasm.svg",
+          "name" : "sarcasm"
+        },
+        {
+          "glass" : true,
+          "image-name" : "paranoia.svg",
+          "name" : "paranoia"
+        }
+      ],
+      "lighting" : "individual",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.25
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}
