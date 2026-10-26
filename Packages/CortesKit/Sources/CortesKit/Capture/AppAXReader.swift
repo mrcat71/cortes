@@ -15,9 +15,13 @@ final class AppAXReader {
         let window = windowValue as! AXUIElement
         let title = AX.string(window, kAXTitleAttribute) ?? application.localizedName ?? "Application"
         var text = ""
+        var composer: CGRect?
         if let focusedValue = AX.attribute(app, kAXFocusedUIElementAttribute) {
             let focused = focusedValue as! AXUIElement
-            if !isProtected(focused) { text = AX.string(focused, kAXSelectedTextAttribute) ?? "" }
+            if !isProtected(focused) {
+                text = AX.string(focused, kAXSelectedTextAttribute) ?? ""
+                composer = AX.frame(focused).map(AX.appKitRect)
+            }
         }
         if text.isEmpty, scope == .visibleWindow { text = visibleText(in: window) }
         guard
@@ -31,6 +35,8 @@ final class AppAXReader {
                     : "This window doesn't expose readable text through Accessibility.")
         }
         snapshot.anchorFrame = AX.frame(window).map(AX.appKitRect)
+        snapshot.composerFrame = composer
+        snapshot.protectedFrames = snapshot.anchorFrame.map { [$0] } ?? []
         return snapshot
     }
 

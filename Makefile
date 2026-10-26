@@ -1,13 +1,13 @@
 APP := build/DerivedData/Build/Products/Debug/Cortes.app
 IDENTITY ?= Cortes Local Signing
-VERSION ?= 0.1.0
+VERSION ?= 0.1.2
 SPARKLE_PUBLIC_KEY ?=
 RELEASE_APP := build/Release/Build/Products/Release/Cortes.app
 SPARKLE_TOOLS := build/Release/SourcePackages/artifacts/sparkle/Sparkle/bin
 DMGBUILD ?= build/dmg-tools/bin/dmgbuild
 ICTOOL = $(shell xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool
 
-.PHONY: build run demo test release-build dmg-tools package appcast icon-preview signing-identity
+.PHONY: build run demo test test-ui release-build dmg-tools package appcast icon-preview signing-identity
 
 # Builds ad-hoc, then re-signs with a stable local identity when one exists. A stable signature keeps the
 # Accessibility grant across rebuilds; ad-hoc builds lose it every time.
@@ -30,6 +30,10 @@ demo: build
 
 test:
 	swift test --package-path Packages/CortesKit
+	python3 scripts/test_localization.py
+
+test-ui: build
+	"$(APP)/Contents/MacOS/Cortes" --interaction-self-test build/interaction-check
 
 # Distribution builds never use the developer's local signing identity.
 release-build:

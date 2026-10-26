@@ -4,6 +4,7 @@ import Carbon.HIToolbox
 import CortesKit
 import Observation
 import os
+import UniformTypeIdentifiers
 
 enum Mode: String, CaseIterable, Identifiable {
     case manual
@@ -96,6 +97,12 @@ final class AppModel {
     // MARK: Settings (UserDefaults; the API key lives in Keychain)
 
     var mode: Mode { didSet { defaults.set(mode.rawValue, forKey: "mode"); applyMode() } }
+    var showMenuBarIcon: Bool {
+        didSet {
+            defaults.set(showMenuBarIcon, forKey: "showMenuBarIcon")
+            applyActivationPolicy()
+        }
+    }
     var perspectiveMode: PerspectiveMode {
         didSet {
             guard oldValue != perspectiveMode else { return }
@@ -161,6 +168,11 @@ final class AppModel {
     private(set) var axTrusted = AXIsProcessTrusted()
     private(set) var captureStatus = "Starting…"
     private(set) var current: ConversationSnapshot?
+    private(set) var language: ConversationLanguage = .english
+    private(set) var lastExternalApp: CaptureApplication?
+    private(set) var lastConversationKey: ConversationKey?
+    var applicationPickerError: String?
+    var overlayPlacementUnavailable = false
     private(set) var phase: OverlayPhase = .hidden
     private(set) var stale = false
     private(set) var connectionTestResult: String?
@@ -202,9 +214,10 @@ final class AppModel {
     @ObservationIgnored private var screenLocked = false
     @ObservationIgnored private var sleeping = false
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, readKeychain: Bool = true) {
         self.defaults = defaults
         mode = Mode(rawValue: defaults.string(forKey: "mode") ?? "") ?? .manual
+        showMenuBarIcon = defaults.object(forKey: "showMenuBarIcon") as? Bool ?? true
         let perspectiveMode = PerspectiveMode(rawValue: defaults.string(forKey: "perspectiveMode") ?? "") ?? .innerVoices
         self.perspectiveMode = perspectiveMode
         sensitivity = Sensitivity(rawValue: defaults.string(forKey: "sensitivity") ?? "") ?? .medium
@@ -234,12 +247,14 @@ final class AppModel {
         scenarios = Scenario.loadBundled()
         demoScenarioID = scenarios.first?.id ?? ""
         #endif
-        hasAPIKey = KeychainStore.read(service: Self.bundleID, account: Self.keychainAccount) != nil
+        hasAPIKey = readKeychain && KeychainStore.read(service: Self.bundleID, account: Self.keychainAccount) != nil
     }
 
     func start() {
         guard !started else { return }
         started = true
+        applyActivationPolicy()
+        rememberExternalApp(NSWorkspace.shared.frontmostApplication)
         overlay = OverlayController(model: self)
         hotKey = GlobalHotKey(keyCode: kVK_ANSI_V, modifiers: controlKey | optionKey) { [weak self] in
             self?.hotKeyPressed()
@@ -278,6 +293,23 @@ final class AppModel {
     }
 
     // MARK: Derived
+
+    private func applyActivationPolicy() {
+        // A Dock entry keeps Settings reachable and the app alive when its menu extra is removed.
+        let policy: NSApplication.ActivationPolicy = showMenuBarIcon ? .accessory : .regular
+        AppUpdater.shared.backgroundActivationPolicy = policy
+        NSApp.setActivationPolicy(policy)
+    }
+
+    func localized(_ key: String, _ arguments: CVarArg...) -> String {
+        InterfaceText.string(key, locale: language.locale, arguments: arguments)
+    }
+
+    var displayCaptureStatus: String {
+        if overlayPlacementUnavailable { return localized("No free space for suggestions. Move or resize the conversation window.") }
+        if let current { return localized("Reading “%@”", current.key.title) }
+        return localized(captureStatus)
+    }
 
     var menuBarSymbol: String {
         if mode == .paused { return "moon.zzz" }
@@ -357,19 +389,21 @@ final class AppModel {
     private func ingest(_ snapshot: ConversationSnapshot) {
         let previous = current
         current = snapshot
+        lastConversationKey = snapshot.key
+        language = ConversationLanguage.detect(in: snapshot.messages, fallback: previous?.key == snapshot.key ? language : .english)
         if let previous, previous.key != snapshot.key {
             cancelWork()
             hideOverlay()
             return // a conversation switch never triggers auto mode
         }
         guard let previous, previous.revision != snapshot.revision else {
-            if phase.isVisible { overlay?.update(anchor: snapshot.anchorFrame) }
+            if phase.isVisible { overlay?.update(snapshot: snapshot) }
             return
         }
         if case .result(let result) = phase, result.key == snapshot.key {
             stale = result.revision != snapshot.revision
         }
-        if phase.isVisible { overlay?.update(anchor: snapshot.anchorFrame) }
+        if phase.isVisible { overlay?.update(snapshot: snapshot) }
         if automaticGenerationEnabled { scheduleAuto() }
     }
 
@@ -382,6 +416,8 @@ final class AppModel {
     private func wipe() {
         stopCall(resumeTextCapture: false)
         current = nil
+        lastConversationKey = nil
+        language = .english
         firedRevisions.removeAll()
         lastFire.removeAll()
         recentTop.removeAll()
@@ -434,16 +470,18 @@ final class AppModel {
             return
         }
         #endif
-        if case .result(let result) = phase, !stale, result.key == current?.key {
-            hideOverlay() // a second press dismisses fresh suggestions
-            return
-        }
         capture?.readNow { [weak self] event in
             Task { @MainActor in
                 guard let self else { return }
                 self.handle(event)
                 switch event {
-                case .snapshot(let snapshot): self.run(snapshot, manual: true)
+                case .snapshot(let snapshot):
+                    if case .result(let result) = self.phase,
+                       result.key == snapshot.key, result.revision == snapshot.revision {
+                        self.hideOverlay() // Dismiss only after confirming the focused channel or thread.
+                    } else {
+                        self.run(snapshot, manual: true)
+                    }
                 case .notTrusted: self.showFailure("Cortes needs Accessibility permission to read application text.")
                 case .failed(let message), .inactive(let message): self.showFailure(message)
                 }
@@ -457,6 +495,7 @@ final class AppModel {
         guard callSessionID == nil || snapshot.kind == .call else { return }
         cancelWork()
         guard mode != .paused, !screenLocked, !sleeping else { return }
+        language = ConversationLanguage.detect(in: snapshot.messages, fallback: current?.key == snapshot.key ? language : .english)
         guard CapturePrivacy.allowsTextContext(snapshot, apps: enabledTextApps, scope: textScope) else {
             showFailure("This app or text capture scope is no longer enabled.")
             return
@@ -506,7 +545,7 @@ final class AppModel {
 
         let engine = SuggestionEngine(
             backend: backend, voices: voices.filter(\.enabled), recentTop: recentTop, perspectiveMode: perspectiveMode)
-        let request = SuggestionRequest(snapshot: snapshot, mode: manual ? "manual" : "auto", pseudonymize: pseudonymize)
+        let request = SuggestionRequest(snapshot: snapshot, mode: manual ? "manual" : "auto", pseudonymize: pseudonymize, language: language)
         inflight = Task { [weak self] in
             do {
                 let result = try await engine.run(request) { [weak self] batch in
@@ -548,6 +587,43 @@ final class AppModel {
             }
             return CaptureApplication(id: id, name: app.localizedName ?? id)
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func rememberExternalApp(_ app: NSRunningApplication?) {
+        guard let app, app.activationPolicy == .regular, let id = app.bundleIdentifier, id != Self.bundleID else { return }
+        lastExternalApp = CaptureApplication(id: id, name: app.localizedName ?? id)
+    }
+
+    func enableTextApp(_ id: String) {
+        guard id != Self.bundleID, id != SlackAXReader.bundleID else { return }
+        if !enabledTextApps.contains(id) { enabledTextApps.append(id) }
+    }
+
+    func addLastAppToAllowed() {
+        guard let app = lastExternalApp else { return }
+        enableTextApp(app.id)
+        // Reading an app and sending a particular context to a model remain separate permissions.
+        if let key = lastConversationKey, key.app == app.id || (app.id == SlackAXReader.bundleID && key.app == "slack") {
+            setAllowed(key, true)
+        }
+    }
+
+    func chooseAllowedApplication() {
+        let picker = NSOpenPanel()
+        picker.allowedContentTypes = [.application]
+        picker.canChooseDirectories = false
+        picker.allowsMultipleSelection = false
+        picker.directoryURL = URL(fileURLWithPath: "/Applications")
+        picker.prompt = localized("Add application")
+        picker.begin { [weak self] response in
+            guard response == .OK, let self, let url = picker.url else { return }
+            guard let id = Bundle(url: url)?.bundleIdentifier else {
+                self.applicationPickerError = self.localized("This application has no bundle identifier.")
+                return
+            }
+            self.applicationPickerError = nil
+            self.enableTextApp(id)
+        }
     }
 
     func startCall() {
@@ -676,7 +752,7 @@ final class AppModel {
 
     private func showOverlay(anchor: CGRect?) {
         dismissTask?.cancel()
-        overlay?.show(anchor: anchor)
+        overlay?.show(snapshot: current, fallbackAnchor: anchor)
     }
 
     private func showFailure(_ message: String, anchor: CGRect? = nil) {
@@ -796,6 +872,14 @@ final class AppModel {
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { [weak self] _ in MainActor.assumeIsolated { self?.stopCall(resumeTextCapture: false) } })
         let workspace = NSWorkspace.shared.notificationCenter
+        observers.append(workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.activationPolicy == .regular, let id = app.bundleIdentifier else { return }
+            let candidate = CaptureApplication(id: id, name: app.localizedName ?? id)
+            MainActor.assumeIsolated {
+                if id != Self.bundleID { self?.lastExternalApp = candidate }
+            }
+        })
         observers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.sleeping = true; self?.applyMode() }
         })
@@ -848,11 +932,13 @@ final class AppModel {
             cancelWork()
             hideOverlay()
             current = demoSnapshot()
+            language = current.map { ConversationLanguage.detect(in: $0.messages) } ?? .english
         }
     }
 
     func demoAppeared() {
         current = demoSnapshot()
+        language = current.map { ConversationLanguage.detect(in: $0.messages) } ?? .english
     }
 
     func demoNext() {

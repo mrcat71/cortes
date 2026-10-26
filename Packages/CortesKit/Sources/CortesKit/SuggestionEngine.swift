@@ -5,11 +5,13 @@ public struct SuggestionRequest: Sendable {
     public var snapshot: ConversationSnapshot
     public var mode: String
     public var pseudonymize: Bool
+    public var language: ConversationLanguage?
 
-    public init(snapshot: ConversationSnapshot, mode: String, pseudonymize: Bool) {
+    public init(snapshot: ConversationSnapshot, mode: String, pseudonymize: Bool, language: ConversationLanguage? = nil) {
         self.snapshot = snapshot
         self.mode = mode
         self.pseudonymize = pseudonymize
+        self.language = language
     }
 }
 
@@ -46,7 +48,8 @@ public struct SuggestionEngine: Sendable {
         _ request: SuggestionRequest, onProgress: (@Sendable (VoiceBatch?) async -> Void)? = nil
     ) async throws -> SuggestionResult {
         let started = Date()
-        let (chat, pseudonymizer) = Self.prepare(request.snapshot, pseudonymize: request.pseudonymize)
+        var (chat, pseudonymizer) = Self.prepare(request.snapshot, pseudonymize: request.pseudonymize)
+        if let language = request.language { chat.language = language }
         let system = PromptBuilder.system(voices: voices, perspectiveMode: perspectiveMode)
         let user = PromptBuilder.user(chat: chat, mode: request.mode)
         // Local decoding is grammar-constrained by this schema; cloud backends ignore it.
@@ -55,22 +58,25 @@ public struct SuggestionEngine: Sendable {
         var turns = [ChatTurn(role: "user", content: user)]
         let first = try await generate(
             system: system, turns: turns, temperature: 0.8, schema: schema,
-            pseudonymizer: pseudonymizer, onProgress: onProgress)
+            pseudonymizer: pseudonymizer, language: chat.language, onProgress: onProgress)
         var output = first
         var repaired = false
         var batch: VoiceBatch
         do {
             batch = try ResponseParser.parse(first.text, voices: voices)
+            if backend.origin != .replay { try chat.language.validate(batch) }
         } catch {
             log.notice("Invalid model output, repairing once: \(error.localizedDescription, privacy: .public)")
             try Task.checkCancellation()
             await onProgress?(nil)
             turns.append(ChatTurn(role: "assistant", content: first.text))
-            turns.append(ChatTurn(role: "user", content: PromptBuilder.repair(errors: error.localizedDescription)))
+            turns.append(ChatTurn(role: "user", content: PromptBuilder.repair(errors: error.localizedDescription)
+                + " All thoughts, replies and gist must use \(chat.language.name) (\(chat.language.code))."))
             output = try await generate(
                 system: system, turns: turns, temperature: 0.3, schema: schema,
-                pseudonymizer: pseudonymizer, onProgress: onProgress)
+                pseudonymizer: pseudonymizer, language: chat.language, onProgress: onProgress)
             batch = try ResponseParser.parse(output.text, voices: voices)
+            if backend.origin != .replay { try chat.language.validate(batch) }
             repaired = true
         }
 
@@ -89,7 +95,7 @@ public struct SuggestionEngine: Sendable {
 
     private func generate(
         system: String, turns: [ChatTurn], temperature: Double, schema: Data,
-        pseudonymizer: Pseudonymizer?, onProgress: (@Sendable (VoiceBatch?) async -> Void)?
+        pseudonymizer: Pseudonymizer?, language: ConversationLanguage, onProgress: (@Sendable (VoiceBatch?) async -> Void)?
     ) async throws -> LLMResult {
         guard let onProgress, let stream = backend.stream(
             system: system, turns: turns, temperature: temperature, maxTokens: 1200, schema: schema)
@@ -105,6 +111,13 @@ public struct SuggestionEngine: Sendable {
             text += fragment
             for batch in parser.append(fragment, voices: voices) {
                 try Task.checkCancellation()
+                if backend.origin != .replay {
+                    do { try language.validate(batch) }
+                    catch {
+                        log.debug("Withholding preview in the wrong language; final validation will request repair")
+                        continue
+                    }
+                }
                 await onProgress(Self.restore(batch, using: pseudonymizer))
             }
         }
@@ -128,7 +141,15 @@ public struct SuggestionEngine: Sendable {
     public static func prepare(_ snapshot: ConversationSnapshot, pseudonymize: Bool) -> (PreparedChat, Pseudonymizer?) {
         var kept: [ChatMessage] = []
         var budget = 6000
-        for message in snapshot.messages.suffix(20).reversed() {
+        var parent = snapshot.key.threadID == nil ? nil : snapshot.messages.first
+        if var cleaned = parent {
+            cleaned.text = Sanitizer.clean(cleaned.text)
+            cleaned.author = Sanitizer.clean(cleaned.author, maxLength: 60)
+            parent = cleaned
+            budget -= cleaned.text.count
+        }
+        let candidates = parent == nil ? snapshot.messages : Array(snapshot.messages.dropFirst())
+        for message in candidates.suffix(parent == nil ? 20 : 19).reversed() {
             var cleaned = message
             cleaned.text = Sanitizer.clean(message.text)
             cleaned.author = Sanitizer.clean(message.author, maxLength: 60)
@@ -136,6 +157,7 @@ public struct SuggestionEngine: Sendable {
             if budget < 0 && !kept.isEmpty { break }
             kept.insert(cleaned, at: 0)
         }
+        if let parent { kept.insert(parent, at: 0) }
         let others = (snapshot.kind == .context || snapshot.kind == .call) ? [] : kept.filter { !$0.isMe }.map(\.author)
         let pseudonymizer = pseudonymize ? Pseudonymizer(names: others, myName: snapshot.myName) : nil
         let messages = kept.enumerated().map { index, message in
@@ -151,7 +173,9 @@ public struct SuggestionEngine: Sendable {
             kind: snapshot.kind,
             title: pseudonymizer?.scrub(title) ?? title,
             messages: messages,
-            myName: pseudonymize ? nil : snapshot.myName)
+            myName: pseudonymize ? nil : snapshot.myName,
+            threadID: snapshot.key.threadID,
+            language: ConversationLanguage.detect(in: kept))
         return (chat, pseudonymizer)
     }
 }

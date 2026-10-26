@@ -74,23 +74,56 @@ public final class SlackAXReader: @unchecked Sendable {
             ?? ((AX.attribute(app, kAXWindowsAttribute) as? [AXUIElement])?.first)
         guard let window else { throw ReadError.noWindow }
 
-        // The sidebar is large; skip it while looking for the message pane.
-        func findPane() -> AXUIElement? {
-            AX.first(in: window, withClass: "p-message_pane") { _, classes in
-                classes.contains("p-channel_sidebar") || classes.contains("p-tab_rail")
+        func findLists() -> [AXUIElement] {
+            AX.matching(in: window) { element in
+                AX.role(element) == kAXListRole as String
+                    && AX.children(element).contains { AX.domID($0).flatMap(Self.messageTimestamp) != nil }
             }
         }
-        var pane = findPane()
-        if pane == nil {
+        var lists = findLists()
+        if lists.isEmpty {
             // Chromium drops its web accessibility tree when nobody has queried it for a while. Opt in
             // again and give it a moment to rebuild (about 1-2 s) before concluding nothing is open.
             AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-            for _ in 0..<8 where pane == nil {
+            for _ in 0..<8 where lists.isEmpty {
                 Thread.sleep(forTimeInterval: 0.25)
-                pane = findPane()
+                lists = findLists()
             }
         }
-        guard let pane, let list = Self.messageList(in: pane) else { throw ReadError.noMessageList }
+        guard !lists.isEmpty else { throw ReadError.noMessageList }
+        let focused = AX.attribute(app, kAXFocusedUIElementAttribute).map { $0 as! AXUIElement }
+        let focusedAncestors = focused.map { AX.ancestors(of: $0) } ?? []
+        let panes = lists.map { list in
+            AX.ancestors(of: list).first { element in
+                AX.classes(element).contains { ["p-message_pane", "p-thread_view", "p-threads_view__thread"].contains($0) }
+            } ?? list
+        }
+        let threads = lists.map { list in
+            AX.ancestors(of: list).contains { element in
+                AX.classes(element).contains { $0.hasPrefix("p-thread_view") || $0.hasPrefix("p-threads_view__thread") }
+            }
+        }
+        let selected = Self.targetIndex(
+            frames: panes.map { AX.frame($0) }, threads: threads, focus: focused.flatMap(AX.frame),
+            focusedIndex: panes.indices.first { index in
+                focusedAncestors.contains { CFEqual($0, panes[index]) || CFEqual($0, lists[index]) }
+            })
+        let pane = panes[selected]
+        let list = lists[selected]
+        let isThread = threads[selected]
+        let composers = AX.matching(in: window) { element in
+            AX.role(element) == kAXTextAreaRole as String
+                && AX.string(element, kAXSubroleAttribute) != kAXSecureTextFieldSubrole
+        }
+        let composer = composers.first { candidate in
+            AX.ancestors(of: candidate).contains { CFEqual($0, pane) }
+        } ?? composers.filter { candidate in
+            guard let frame = AX.frame(candidate), let paneFrame = AX.frame(pane) else { return false }
+            return frame.midX >= paneFrame.minX && frame.midX <= paneFrame.maxX
+        }.min { lhs, rhs in
+            let bottom = AX.frame(list)?.maxY ?? 0
+            return abs((AX.frame(lhs)?.minY ?? 0) - bottom) < abs((AX.frame(rhs)?.minY ?? 0) - bottom)
+        }
 
         if detectedMyName == nil,
            let row = AX.first(in: window, withClass: "p-channel_sidebar__channel--im-you", maxDepth: 40)
@@ -142,12 +175,33 @@ public final class SlackAXReader: @unchecked Sendable {
         }
 
         let anchor = (AX.frame(pane) ?? AX.frame(window)).map(AX.appKitRect(fromAX:))
+        let rootID = isThread ? messages.first?.id : nil
+        guard !isThread || rootID != nil else { throw ReadError.noMessageList }
         return ConversationSnapshot(
-            key: ConversationKey(app: "slack", title: title),
+            key: ConversationKey(app: "slack", title: title, threadID: rootID),
             kind: isDM ? .dm : .channel,
-            messages: Array(messages.suffix(maxMessages)),
+            messages: Self.recentMessages(messages, limit: maxMessages, includeParent: isThread),
             myName: myName,
-            anchorFrame: anchor)
+            anchorFrame: anchor,
+            composerFrame: composer.flatMap(AX.frame).map(AX.appKitRect),
+            protectedFrames: (panes + composers).compactMap(AX.frame).map(AX.appKitRect))
+    }
+
+    static func recentMessages(_ messages: [ChatMessage], limit: Int, includeParent: Bool) -> [ChatMessage] {
+        guard limit > 0 else { return [] }
+        guard includeParent, messages.count > limit, limit > 1, let parent = messages.first else {
+            return Array(messages.suffix(limit))
+        }
+        return [parent] + messages.suffix(limit - 1)
+    }
+
+    static func targetIndex(frames: [CGRect?], threads: [Bool], focus: CGRect?, focusedIndex: Int?) -> Int {
+        if let focusedIndex { return focusedIndex }
+        if let focus, let index = frames.indices.filter({ frames[$0]?.contains(CGPoint(x: focus.midX, y: focus.midY)) == true })
+            .min(by: { (frames[$0]!.width * frames[$0]!.height) < (frames[$1]!.width * frames[$1]!.height) }) {
+            return index
+        }
+        return threads.firstIndex(of: true) ?? 0
     }
 
     static func messageList(in pane: AXUIElement) -> AXUIElement? {

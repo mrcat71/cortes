@@ -5,10 +5,14 @@ struct CortesApp: App {
     @State private var model: AppModel
 
     init() {
+        #if DEBUG
+        if CommandLine.arguments.contains("--interaction-self-test") { InteractionSmoke.run() }
+        #endif
         if CommandLine.arguments.contains("--self-test") {
             ReleaseSmoke.run()
         }
         let model = AppModel()
+        NSApplication.shared.setActivationPolicy(model.showMenuBarIcon ? .accessory : .regular)
         _model = State(initialValue: model)
         // Start after the run loop is up, so the panel and hotkey are created inside a running app.
         DispatchQueue.main.async {
@@ -18,9 +22,17 @@ struct CortesApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Cortes", systemImage: model.menuBarSymbol) {
+        MenuBarExtra("Cortes", systemImage: model.menuBarSymbol, isInserted: $model.showMenuBarIcon) {
             MenuContent(model: model)
+                .environment(\.locale, model.language.locale)
         }
+
+        Window("Cortes", id: "controls") {
+            SettingsView(model: model)
+                .environment(\.locale, model.language.locale)
+        }
+        .defaultLaunchBehavior(model.showMenuBarIcon ? .suppressed : .presented)
+        .restorationBehavior(.disabled)
 
         #if DEBUG
         Window(AppModel.demoWindowTitle, id: AppModel.demoWindowID) {
@@ -33,6 +45,7 @@ struct CortesApp: App {
 
         Settings {
             SettingsView(model: model)
+                .environment(\.locale, model.language.locale)
         }
     }
 }
@@ -42,19 +55,19 @@ struct MenuContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Text(model.captureStatus)
+        Text(model.displayCaptureStatus)
         if model.callActive || model.callStarting {
-            Label(model.callStatus, systemImage: "record.circle.fill")
+            Label(model.localized(model.callStatus), systemImage: "record.circle.fill")
             Button("Stop listening and clear transcript", role: .destructive) { model.stopCall() }
         }
         Divider()
         Button("Ask the voices  ⌃⌥V") { model.hotKeyPressed() }
         Picker("Mode", selection: $model.mode) {
-            ForEach(Mode.allCases) { Text($0.title).tag($0) }
+            ForEach(Mode.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
         }
         if let key = model.current?.key, key.app != "demo", model.current?.kind != .call {
             Toggle(
-                model.engine == .cloud ? "Allow cloud analysis: \(key.title)" : "Allow analysis: \(key.title)",
+                model.localized(model.engine == .cloud ? "Allow cloud analysis: %@" : "Allow analysis: %@", key.title),
                 isOn: Binding(get: { model.isAllowed(key) }, set: { model.setAllowed(key, $0) }))
         }
         Divider()

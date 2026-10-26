@@ -14,6 +14,8 @@ public struct PreparedChat: Sendable {
     public var messages: [PreparedMessage]
     /// ME's real name, only when names aren't pseudonymized.
     public var myName: String?
+    public var threadID: String? = nil
+    public var language: ConversationLanguage = .english
 }
 
 public enum PromptBuilder {
@@ -95,6 +97,7 @@ public enum PromptBuilder {
         encoder.outputFormatting = [.withoutEscapingSlashes]
         let json = (try? encoder.encode(payload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         return json + "\n" + situation(chat: chat, mode: mode)
+            + "\nOutput language: \(chat.language.name) (\(chat.language.code)). Write every thought, reply and gist in this language, even though these instructions and voice examples are English. Keep JSON keys, strategy IDs and enum values unchanged."
     }
 
     /// The dynamic final line: who is who, and which message the voices react to.
@@ -104,6 +107,9 @@ public enum PromptBuilder {
         var seen = Set<String>()
         let people = others.map(\.from).filter { seen.insert($0).inserted }
         var lines: [String] = []
+        if chat.threadID != nil {
+            lines.append("This is a reply thread. The transcript contains its parent message and replies, not the surrounding channel. React only to this thread.")
+        }
         switch chat.kind {
         case .context:
             return "This is unstructured application text, not a parsed chat. Speaker identities and authorship are unknown. Do not assume who wrote it or invent participants. Offer context-aware wording only. Mode: \(mode)."

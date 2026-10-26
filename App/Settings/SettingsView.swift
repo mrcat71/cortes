@@ -22,30 +22,40 @@ struct SettingsView: View {
     }
 }
 
-private struct GeneralSettings: View {
+struct GeneralSettings: View {
     @Bindable var model: AppModel
 
     var body: some View {
         Form {
+            if model.overlayPlacementUnavailable {
+                Label(model.displayCaptureStatus, systemImage: "rectangle.slash")
+                    .foregroundStyle(.orange)
+            }
             Section("Perspectives") {
                 Picker("Perspective mode", selection: $model.perspectiveMode) {
-                    ForEach(PerspectiveMode.allCases) { Text($0.title).tag($0) }
+                    ForEach(PerspectiveMode.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Text(model.perspectiveMode.summary)
+                Text(LocalizedStringKey(model.perspectiveMode.summary))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Picker("Activation", selection: $model.mode) {
-                ForEach(Mode.allCases) { Text($0.title).tag($0) }
+                ForEach(Mode.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
             }
             Picker("Auto sensitivity", selection: $model.sensitivity) {
-                ForEach(Sensitivity.allCases) { Text($0.title).tag($0) }
+                ForEach(Sensitivity.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
             }
             Text("Auto generates suggestions when incoming text changes in an allowed conversation. Every message removes the attention filter. Calls have their own automatic-generation switch.")
                 .font(.caption).foregroundStyle(.secondary)
-            LabeledContent("Hotkey", value: "⌃⌥V asks the voices; press again to dismiss")
+            LabeledContent("Hotkey") { Text("⌃⌥V asks the voices; press again to dismiss") }
+            Toggle("Show Cortes in the menu bar", isOn: $model.showMenuBarIcon)
+            Text("When hidden, Cortes stays in the Dock. Click its Dock icon to reopen Settings. The hotkey still works.")
+                .font(.caption).foregroundStyle(.secondary)
+            LabeledContent("Interface language", value: model.language.locale.localizedString(forLanguageCode: model.language.interfaceCode) ?? "English")
+            Text("Follows the conversation automatically. Interface: English, Russian and Spanish; thoughts and replies use the detected conversation language.")
+                .font(.caption).foregroundStyle(.secondary)
             TextField("Your Slack name", text: $model.myNameOverride, prompt: Text("Detected from Slack's sidebar"))
             LabeledContent("Accessibility") {
                 if model.axTrusted {
@@ -87,7 +97,7 @@ private struct AppCaptureSettings: View {
                 Text("Slack uses its specialized conversation reader. Other apps provide best-effort text context without reliable speaker attribution. Nothing is read from an additional app until you enable it below.")
                     .font(.callout)
                 Picker("Text to read", selection: $model.textScope) {
-                    ForEach(AppTextScope.allCases) { Text($0.title).tag($0) }
+                    ForEach(AppTextScope.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
                 }
                 Text("Selected text is the safest default. Visible window text may include unrelated content; editable fields and password controls are excluded. Allow analysis separately for each context before model generation.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -144,7 +154,7 @@ private struct CallSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Listening session") {
-                Label(model.callStatus, systemImage: model.callActive ? "record.circle.fill" : "waveform")
+                Label(model.localized(model.callStatus), systemImage: model.callActive ? "record.circle.fill" : "waveform")
                     .foregroundStyle(model.callActive ? .red : .secondary)
                     .accessibilityLabel("Call capture status: " + model.callStatus)
                 if model.callStarting { ProgressView().controlSize(.small) }
@@ -175,7 +185,7 @@ private struct ModelSettings: View {
     var body: some View {
         Form {
             Picker("Where the voices run", selection: $model.engine) {
-                ForEach(Engine.allCases) { Text($0.title).tag($0) }
+                ForEach(Engine.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
             }
             switch model.engine {
             case .local:
@@ -204,7 +214,7 @@ private struct ModelSettings: View {
             case .cloud:
                 Section("z.ai") {
                     Picker("Endpoint", selection: $model.endpointPreset) {
-                        ForEach(EndpointPreset.allCases) { Text($0.title).tag($0) }
+                        ForEach(EndpointPreset.allCases) { Text(LocalizedStringKey($0.title)).tag($0) }
                     }
                     TextField("Base URL", text: $model.baseURL)
                     HStack {
@@ -265,7 +275,7 @@ private struct ModelSettings: View {
     }
 }
 
-private struct PrivacySettings: View {
+struct PrivacySettings: View {
     @Bindable var model: AppModel
 
     var body: some View {
@@ -279,8 +289,26 @@ private struct PrivacySettings: View {
                 Toggle("Replace names with aliases and strip emails, links and phone numbers before prompting", isOn: $model.pseudonymize)
             }
             Section("Allowed conversations") {
+                Button("Add this app to allowed", action: model.addLastAppToAllowed)
+                    .disabled(model.lastExternalApp == nil
+                        || (model.lastExternalApp?.id == SlackAXReader.bundleID && model.lastConversationKey?.app != "slack"))
+                if let app = model.lastExternalApp { Text(verbatim: app.name).font(.caption).foregroundStyle(.secondary) }
+                Button("Add application…", action: model.chooseAllowedApplication)
+                Text("Adding an app enables text capture, not automatic model access to every window. Allow each conversation or thread separately. The current conversation is also allowed by Add this app.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let error = model.applicationPickerError {
+                    Text(error).foregroundStyle(.red)
+                }
+                ForEach(model.enabledTextApps, id: \.self) { id in
+                    HStack {
+                        Text(verbatim: model.runningApps.first { $0.id == id }?.name ?? id)
+                        Spacer()
+                        Button("Remove app") { model.enabledTextApps.removeAll { $0 == id } }
+                            .buttonStyle(.borderless)
+                    }
+                }
                 if model.allowlist.isEmpty {
-                    Text("None yet. Open a conversation in Slack, then use “Allow analysis” in the menu bar.")
+                    Text("None yet. Open a conversation, then press ⌃⌥V and choose Allow and ask.")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(model.allowlist, id: \.self) { id in
@@ -298,5 +326,6 @@ private struct PrivacySettings: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear(perform: model.refreshRunningApps)
     }
 }

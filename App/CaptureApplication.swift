@@ -1,6 +1,6 @@
 import Foundation
 
-struct CaptureApplication: Identifiable {
+struct CaptureApplication: Identifiable, Sendable {
     let id: String
     let name: String
 }

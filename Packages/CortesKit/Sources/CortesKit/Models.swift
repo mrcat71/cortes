@@ -11,14 +11,16 @@ public enum ChatKind: String, Sendable, Codable {
 public struct ConversationKey: Hashable, Sendable, Codable {
     public let app: String
     public let title: String
+    public let threadID: String?
 
-    public init(app: String, title: String) {
+    public init(app: String, title: String, threadID: String? = nil) {
         self.app = app
         self.title = title
+        self.threadID = threadID
     }
 
     /// Stable string used for the cloud allowlist and the cooldown ledger.
-    public var id: String { "\(app):\(title)" }
+    public var id: String { "\(app):\(title)" + (threadID.map { ":thread:\($0)" } ?? "") }
 }
 
 public struct ChatMessage: Hashable, Sendable, Codable, Identifiable {
@@ -44,6 +46,9 @@ public struct ConversationSnapshot: Sendable {
     public var myName: String?
     /// Area the overlay docks against, in AppKit global coordinates (bottom-left origin).
     public var anchorFrame: CGRect?
+    /// The active input field and visible text regions, in AppKit global coordinates.
+    public var composerFrame: CGRect?
+    public var protectedFrames: [CGRect]
     public var capturedAt: Date
     /// Generic app text is valid only while this capture scope remains enabled.
     public var textScope: AppTextScope?
@@ -54,7 +59,8 @@ public struct ConversationSnapshot: Sendable {
         messages: [ChatMessage],
         myName: String?,
         anchorFrame: CGRect?,
-        capturedAt: Date = Date(), textScope: AppTextScope? = nil
+        capturedAt: Date = Date(), textScope: AppTextScope? = nil,
+        composerFrame: CGRect? = nil, protectedFrames: [CGRect] = []
     ) {
         self.key = key
         self.kind = kind
@@ -63,6 +69,8 @@ public struct ConversationSnapshot: Sendable {
         self.anchorFrame = anchorFrame
         self.capturedAt = capturedAt
         self.textScope = textScope
+        self.composerFrame = composerFrame
+        self.protectedFrames = protectedFrames
     }
 
     /// Changes when the tail of the conversation changes. Scrolling older history doesn't bump it.

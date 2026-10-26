@@ -3,9 +3,28 @@ import SwiftUI
 
 struct OverlayView: View {
     @Bindable var model: AppModel
-    let onSizeChange: () -> Void
+    let layout: OverlayLayout
+    let onSizeChange: (CGFloat) -> Void
 
     var body: some View {
+        ScrollView {
+            content
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onSizeChange($0) }
+        }
+        .frame(width: layout.width, height: layout.height)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(red: 0.07, green: 0.07, blue: 0.09).opacity(0.95)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.09)))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .environment(\.colorScheme, .dark)
+        .environment(\.locale, model.language.locale)
+        .onHover { model.overlayHovered = $0 }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             switch model.phase {
@@ -28,55 +47,57 @@ struct OverlayView: View {
             }
         }
         .padding(14)
-        .frame(width: OverlayController.width, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.07, blue: 0.09).opacity(0.95)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.09)))
-        .environment(\.colorScheme, .dark)
+        .frame(width: layout.width, alignment: .topLeading)
         .fixedSize(horizontal: false, vertical: true)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in onSizeChange() }
-        .onHover { model.overlayHovered = $0 }
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
-            Text(model.perspectiveMode == .business ? "BUSINESS" : "INNER VOICES")
-                .font(.system(size: 10, weight: .heavy))
-                .tracking(2)
-                .foregroundStyle(.secondary)
-            if let title = model.current?.key.title {
-                Text(verbatim: title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(model.perspectiveMode == .business ? "BUSINESS" : "INNER VOICES")
+                    .font(.system(size: 10, weight: .heavy))
+                    .tracking(2)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                if model.callActive {
+                    Button { model.stopCall() } label: { Image(systemName: "stop.circle.fill") }
+                        .buttonStyle(.plain).foregroundStyle(.red).help("Stop listening and clear transcript")
+                }
+                Button(action: model.retry) { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Ask again")
+                Button(action: model.dismissOverlay) { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Dismiss")
             }
-            Spacer(minLength: 4)
-            if model.callActive {
-                Badge(text: "LISTENING", color: .red)
-                Button { model.stopCall() } label: { Image(systemName: "stop.circle.fill") }
-                    .buttonStyle(.plain).foregroundStyle(.red).help("Stop listening and clear transcript")
-            }
-            if model.stale {
-                Badge(text: "outdated", color: .orange)
-            }
-            if case .result(let result) = model.phase {
-                switch result.origin {
-                case .cloud: Badge(text: "CLOUD", color: .blue)
-                case .local: Badge(text: "LOCAL", color: .green)
-                case .replay: Badge(text: "REPLAY", color: .gray)
+            HStack(spacing: 6) {
+                if let title = model.current?.key.title {
+                    Text(verbatim: title)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .layoutPriority(-1)
+                }
+                if model.current?.key.threadID != nil { Badge(text: "THREAD", color: .purple) }
+                Spacer(minLength: 4)
+                if model.callActive {
+                    Badge(text: "LISTENING", color: .red)
+                }
+                if model.stale {
+                    Badge(text: "outdated", color: .orange)
+                }
+                if case .result(let result) = model.phase {
+                    switch result.origin {
+                    case .cloud: Badge(text: "CLOUD", color: .blue)
+                    case .local: Badge(text: "LOCAL", color: .green)
+                    case .replay: Badge(text: "REPLAY", color: .gray)
+                    }
                 }
             }
-            Button(action: model.retry) { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Ask again")
-            Button(action: model.dismissOverlay) { Image(systemName: "xmark") }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Dismiss")
         }
     }
 }
@@ -86,8 +107,10 @@ private struct Badge: View {
     let color: Color
 
     var body: some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.system(size: 9, weight: .bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.25)))
@@ -104,14 +127,17 @@ private struct ThinkingView: View {
             ForEach(voices) { voice in
                 HStack(spacing: 8) {
                     Image(systemName: voice.ui.symbol).foregroundStyle(Color(hex: voice.ui.color))
-                    Text(voice.name.uppercased())
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(1.2)
-                        .foregroundStyle(Color(hex: voice.ui.color))
-                    Text("is forming an opinion…")
-                        .font(.system(size: 12, design: .serif))
-                        .italic()
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(LocalizedStringKey(voice.name))
+                            .textCase(.uppercase)
+                            .font(.system(size: 11, weight: .bold))
+                            .tracking(1.2)
+                            .foregroundStyle(Color(hex: voice.ui.color))
+                        Text("is forming an opinion…")
+                            .font(.system(size: 12, design: .serif))
+                            .italic()
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .opacity(pulse ? 1 : 0.45)
             }
@@ -155,11 +181,16 @@ private struct ConsentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             #endif
             }
-            HStack {
-                Button("Allow and ask", action: allow).buttonStyle(.borderedProminent)
-                Button("Not now", action: cancel)
+            ViewThatFits(in: .horizontal) {
+                HStack { actions }.fixedSize()
+                VStack(alignment: .leading) { actions }
             }
         }
+    }
+
+    @ViewBuilder private var actions: some View {
+        Button("Allow and ask", action: allow).buttonStyle(.borderedProminent)
+        Button("Not now", action: cancel)
     }
 }
 
@@ -172,7 +203,7 @@ private struct FailureView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label {
-                Text(verbatim: message).fixedSize(horizontal: false, vertical: true)
+                Text(LocalizedStringKey(message)).fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             }
@@ -257,21 +288,27 @@ private struct TensionMeter: View {
     let need: String
 
     var body: some View {
-        HStack(spacing: 3) {
-            Text("TENSION")
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(.tertiary)
-            ForEach(0..<9, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(index < tension ? Color(hex: "#C8553D") : Color.white.opacity(0.1))
-                    .frame(width: 10, height: 4)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("TENSION")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+                Text(need == "now" ? "REPLY NOW" : need == "soon" ? "REPLY SOON" : "NO REPLY NEEDED")
+                    .font(.system(size: 9, weight: .bold))
+                    .tracking(1)
+                    .foregroundStyle(.tertiary)
             }
-            Spacer()
-            Text(need == "now" ? "REPLY NOW" : need == "soon" ? "REPLY SOON" : "NO REPLY NEEDED")
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1)
-                .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            HStack(spacing: 3) {
+                ForEach(0..<9, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(index < tension ? Color(hex: "#C8553D") : Color.white.opacity(0.1))
+                        .frame(width: 10, height: 4)
+                }
+            }
         }
     }
 }
@@ -292,6 +329,7 @@ private struct SayNothingCard: View {
 }
 
 private struct VoiceCard: View {
+    @Environment(\.locale) private var locale
     let ranked: RankedTake
     let voice: VoiceDefinition?
     let recommended: Bool
@@ -300,6 +338,7 @@ private struct VoiceCard: View {
     let copy: () -> Void
 
     private var color: Color { Color(hex: voice?.ui.color ?? "#999999") }
+    private var riskReasons: [String] { ranked.riskReasons.map { InterfaceText.riskReason($0, locale: locale) } }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -307,16 +346,13 @@ private struct VoiceCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Image(systemName: voice?.ui.symbol ?? "person.wave.2").foregroundStyle(color)
-                    Text((voice?.name ?? ranked.id).uppercased())
+                    Text(LocalizedStringKey(voice?.name ?? ranked.id))
+                        .textCase(.uppercase)
                         .font(.system(size: 11, weight: .bold))
                         .tracking(1.2)
                         .foregroundStyle(color)
-                    Text(ranked.take.strategy.replacingOccurrences(of: "_", with: " "))
-                        .font(.system(size: 9))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
-                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
                     if recommended {
                         Image(systemName: "star.fill").foregroundStyle(.yellow).help("Recommended")
@@ -324,9 +360,15 @@ private struct VoiceCard: View {
                     if !ranked.eligible {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
-                            .help(ranked.riskReasons.joined(separator: "; "))
+                            .help(riskReasons.joined(separator: "; "))
                     }
                 }
+                Text(LocalizedStringKey(ranked.take.strategy.replacingOccurrences(of: "_", with: " ")))
+                    .font(.system(size: 9))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .foregroundStyle(.secondary)
                 Text(verbatim: ranked.take.thought)
                     .font(.system(size: 14, design: .serif))
                     .italic()
@@ -335,7 +377,7 @@ private struct VoiceCard: View {
                     replyBox
                 }
                 if !ranked.eligible, !ranked.riskReasons.isEmpty {
-                    Text("⚠ " + ranked.riskReasons.joined(separator: "; "))
+                    Text("⚠ " + riskReasons.joined(separator: "; "))
                         .font(.system(size: 10))
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
@@ -353,7 +395,7 @@ private struct VoiceCard: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: copy) {
-                Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                Label(copied ? LocalizedStringKey("Copied") : LocalizedStringKey("Copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 11, weight: .semibold))
             }
             .buttonStyle(.plain)

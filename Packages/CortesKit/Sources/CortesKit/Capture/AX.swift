@@ -22,6 +22,34 @@ enum AX {
         (attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []
     }
 
+    static func ancestors(of element: AXUIElement, limit: Int = 40) -> [AXUIElement] {
+        var result = [element]
+        for _ in 0..<limit {
+            guard let parent = attribute(result[result.count - 1], kAXParentAttribute) else { break }
+            let next = parent as! AXUIElement
+            guard !result.contains(where: { CFEqual($0, next) }) else { break }
+            result.append(next)
+        }
+        return result
+    }
+
+    static func matching(in root: AXUIElement, predicate: (AXUIElement) -> Bool) -> [AXUIElement] {
+        var stack = [(root, 0)]
+        var result: [AXUIElement] = []
+        var visited = 0
+        while let (element, depth) = stack.popLast(), visited < 4000 {
+            visited += 1
+            let classes = classes(element)
+            guard attribute(element, "AXHidden") as? Bool != true,
+                  !classes.contains("p-channel_sidebar"), !classes.contains("p-tab_rail") else { continue }
+            if predicate(element) { result.append(element); continue }
+            if depth < 50 {
+                stack.append(contentsOf: children(element).reversed().map { ($0, depth + 1) })
+            }
+        }
+        return result
+    }
+
     /// Chromium exposes the DOM class list, which is far more stable than roles alone.
     static func classes(_ element: AXUIElement) -> [String] {
         (attribute(element, "AXDOMClassList") as? [String]) ?? []

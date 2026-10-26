@@ -22,6 +22,7 @@ final class AppUpdater: NSObject, @preconcurrency SPUStandardUserDriverDelegate 
     @ObservationIgnored private var controller: SPUStandardUpdaterController?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var previousActivationPolicy: NSApplication.ActivationPolicy?
+    @ObservationIgnored var backgroundActivationPolicy: NSApplication.ActivationPolicy = .accessory
     @ObservationIgnored private let log = Logger(subsystem: AppModel.bundleID, category: "updates")
 
     func start() {
@@ -65,7 +66,7 @@ final class AppUpdater: NSObject, @preconcurrency SPUStandardUserDriverDelegate 
 
     func standardUserDriverWillFinishUpdateSession() {
         NSApp.dockTile.badgeLabel = ""
-        if let previousActivationPolicy { NSApp.setActivationPolicy(previousActivationPolicy) }
+        if previousActivationPolicy != nil { NSApp.setActivationPolicy(backgroundActivationPolicy) }
         previousActivationPolicy = nil
     }
 }

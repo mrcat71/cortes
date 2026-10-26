@@ -117,6 +117,26 @@ scenario if demonstrating the offline fallback.
 5. Press **Control + Option + V** (`⌃⌥V`) to ask the voices. Press it again to dismiss a fresh result.
    Copy a reply, review it, and paste it into Slack yourself.
 
+Focus the channel composer or a reply-thread composer before asking. Threads use their own transcript,
+consent and cooldown, separate from the channel and other threads. The parent message is retained with
+recent replies when context is shortened. If a thread is open without a focused composer, it is preferred
+over the channel. No Slack API token is required.
+
+Suggestions open near the active composer, using free screen space outside visible message panes and
+input fields. A smaller free region gets a narrower or scrollable popup rather than covering messages.
+If no safe region exists, Cortes hides the popup and reports this in its menu; move or resize the chat
+window to make room. Generic app capture protects the entire source window.
+
+In **Settings → General**, turn off **Show Cortes in the menu bar** to hide its icon. Cortes then stays
+in the Dock: click its Dock icon to reopen Settings and restore the menu icon. The hotkey keeps working.
+
+The interface follows the recent conversation language using on-device detection, with translations for
+English, Russian and Spanish. Short acknowledgments and emoji do not change the language. Other detected
+languages use the English interface, but thoughts, replies and summaries are requested in the conversation
+language. Confidently wrong-language output triggers the existing single repair retry; if it still fails,
+no validated result is offered. Very short or mixed-language output may remain ambiguous. Replay stays a
+fixed English fixture and does not translate.
+
 Without the signing identity, the build is ad-hoc signed and Accessibility permission can be lost after
 each rebuild. Xcode's Run action also stays ad-hoc signed. If Cortes shows a permission warning despite
 being enabled, `tccutil reset Accessibility io.github.mrcat71.cortes` clears its existing grant;
@@ -135,6 +155,12 @@ labels or navigation, and names cannot reliably be pseudonymized without knowing
 Model generation still needs **Allow analysis** for that context, separately from the per-app capture
 permission. Auto mode reacts to changes after the initial snapshot; changing windows alone does not
 trigger generation.
+
+**Settings → Privacy → Add this app to allowed** enables the last active external app. If a captured
+conversation from that app is available, it also allows that specific conversation or thread for analysis.
+**Add application…** lets you choose an installed `.app`, including one that is not running; it enables
+capture only. Neither action grants model access to every window. Remove an app in Privacy or disable it
+in Applications to stop its text capture. Slack remains handled by its specialized reader.
 
 ### Voice calls, including video calls
 
@@ -260,6 +286,7 @@ construction, invalid output, and Ollama's schema fallback and repair behavior:
 
 ```sh
 make test
+make test-ui
 ```
 
 The `DemoTests` suite checks that all six conversations load, have distinct IDs and conversation keys,
@@ -308,9 +335,12 @@ plain-model benchmark has been recorded in this repository yet.
 ## Where it does not work well yet
 
 - Slack capture depends on its Electron Accessibility tree and may break when Slack changes it.
-  Side-panel threads are not read, grouped messages can lack an author, and long text is truncated.
+  Thread selection follows accessible pane/focus metadata; live Slack layouts still need manual validation.
+  Grouped messages can lack an author, and long text is truncated.
 - Local 12B generation takes tens of seconds on the recorded hardware. Auto mode can lag behind a busy chat.
 - In the recorded Russian scenario, Gemma sometimes answered partly in English despite the language rule.
+  Explicit language targets and a wrong-language repair check now mitigate this, but do not guarantee
+  perfect language detection or translation quality.
 - Tone, subtext and risk scores can be wrong. The explicit language-specific risk lists are not exhaustive;
   humor and workplace relationships are context-dependent. Review all suggestions.
 - The documented model workflow uses neither ElevenLabs nor the Gemini API. Replay does not respond to new inputs.
@@ -345,7 +375,7 @@ Before submission:
 ```sh
 make build
 make test
-make package VERSION=0.1.1
+make package VERSION=0.1.2
 cd Packages/CortesKit
 swift run cortes-cli prompt launch-war-room 5
 env -u ZAI_API_KEY OLLAMA_MODEL=gemma4:12b swift run cortes-cli ask launch-war-room 5
@@ -356,6 +386,14 @@ The last two commands run live local inference and offline replay, respectively.
 when `ZAI_API_KEY` is nonempty, otherwise Ollama when `OLLAMA_URL` or `OLLAMA_MODEL` is set, otherwise
 Replay. This CLI default differs from the app's local default. It prints latency, repair status,
 situation, recommendation, strategies and risk reasons, not a hidden model reasoning trace.
+
+`make test` also checks translation-key and format-argument parity and bundled voice-label coverage.
+The default local build and package version is **0.1.2**; see [CHANGELOG.md](CHANGELOG.md) for its changes.
+`make test-ui` renders synthetic English, Russian and Spanish consent, result, General and Privacy views into
+`build/interaction-check/` and checks app opt-in and hidden-icon activation policy. It opens temporary
+test windows but does not start capture, contact a model, read Keychain or write persistent preferences.
+Live Slack thread parsing, composer tracking, menu-icon removal/reopening and non-activating Copy/paste
+still need a manual check with an authorized test conversation.
 
 `swift run cortes-cli slack` reads the focused Slack conversation using the terminal's Accessibility
 permission and masks text by default. `--raw` prints actual conversation content; do not use it in
@@ -425,8 +463,8 @@ tag on the checked commit. For example, the following commands create a tag and 
 publication, respectively:
 
 ```sh
-git tag -a v0.1.1 -m "Release 0.1.1"
-git push origin v0.1.1
+git tag -a v0.1.2 -m "Release 0.1.2"
+git push origin v0.1.2
 ```
 
 Do not move a published tag or replace its assets; ship a new patch version. Verify the workflow result,
