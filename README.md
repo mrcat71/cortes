@@ -442,6 +442,9 @@ One-time repository configuration:
 
 - Set the Actions variable `MACOS_RUNNER` to an approved Apple Silicon Mac runner label with Xcode 27.
   GitHub-hosted `xcode-27` is one option. Do not put untrusted public PRs on a privileged self-hosted Mac.
+  Every job that builds or tests needs this Mac. Only the release `publish` job, which checks and
+  uploads the built artifacts, runs on Linux: GitHub-hosted `ubuntu-24.04` unless the optional Actions
+  variable `LINUX_RUNNER` names another label. That runner needs `gh` and GNU coreutils.
 - Generate a dedicated update key with the `generate_keys` tool resolved by the first `make package`.
   It keeps the private key in your login Keychain under account `cortes` and prints the public key:
 
